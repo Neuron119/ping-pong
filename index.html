@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f5f6f2">
+  <meta name="description" content="指尖上的 3D 乒乓球。真实挥拍、人机对战，随时开场，无需联网。">
+  <title>PING · 指尖乒乓</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="site-header">
+      <a class="brand" href="./" aria-label="PING 首页"><span class="brand-symbol"><i></i><b></b></span><span>PING<span class="brand-dot">.</span></span><span class="brand-cn">指尖乒乓</span></a>
+      <div class="header-center"><span class="live-dot"></span>你的私人练球时间</div>
+      <div class="header-actions">
+        <button class="icon-button" id="sound-button" aria-label="关闭音效" title="音效开关"><svg viewBox="0 0 24 24"><path d="m11 5-6 4H2v6h3l6 4zM15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/></svg></button>
+        <button class="icon-button" id="help-button" aria-label="玩法与比赛规则" title="玩法与规则"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 8.5a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4M12 16h.01"/></svg></button>
+        <button class="icon-button" id="settings-button" aria-label="打开设置" title="设置"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.5"/><circle cx="15" cy="17" r="2.5"/></svg></button>
+      </div>
+    </header>
+
+    <section class="hero">
+      <div><p class="eyebrow"><span></span> LESS SCROLLING. MORE PLAYING.</p><h1>把球台，带到指尖<span>。</span></h1><p class="hero-description">一次挥拍，一场好球。随时和你的 AI 球友过过招。</p></div>
+      <div class="hero-note"><span class="note-icon">↗</span><div>无须下载，即刻开场<small>3D 球场 · 真实挥拍 · 离线可玩</small></div></div>
+    </section>
+
+    <main class="play-layout">
+      <section class="court-card" aria-label="3D 乒乓球场">
+        <div class="court-topline"><span><span class="live-dot"></span> THE PRACTICE CLUB <span class="court-number">/ 01</span></span><div><button id="pause-button" class="court-icon" aria-label="暂停比赛" title="暂停" disabled><svg viewBox="0 0 24 24"><path d="M9 5v14M15 5v14"/></svg></button><button id="fullscreen-button" class="court-icon" aria-label="切换全屏" title="全屏"><svg viewBox="0 0 24 24"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg></button></div></div>
+        <div id="court" class="court-view" tabindex="0" aria-label="乒乓球场触控区。按住下半屏拖动球拍，向前或横向擦拍击球。">
+          <canvas id="game-canvas"></canvas>
+          <div class="scoreboard" aria-live="polite" aria-atomic="true">
+            <div class="score-player"><span class="player-name"><i class="player-dot"></i><span id="player-name">你</span> <span id="player-serve" class="serve-dot" title="发球方">●</span></span><strong id="player-score">00</strong><span class="set-dots" id="player-sets"></span></div>
+            <div class="score-middle"><span id="game-label">自由开场</span><b>:</b><small id="score-format">11 分制</small></div>
+            <div class="score-player"><span class="player-name"><i class="cpu-dot"></i><span id="ai-name">AI 球友</span> <span id="ai-serve" class="serve-dot" title="发球方" hidden>●</span></span><strong id="ai-score">00</strong><span class="set-dots" id="ai-sets"></span></div>
+          </div>
+          <div class="quality-badge" id="quality-badge" hidden></div><div class="touch-marker" id="touch-marker" hidden><i></i><small>触控点</small></div>
+          <div class="opponent-tag" id="opponent-tag"><span class="live-dot"></span> AI 球友 · 入门</div>
+          <div class="rally-badge" id="rally-badge" hidden><span>RALLY</span><b id="rally-count">0</b></div>
+          <div class="point-toast" id="point-toast" aria-live="assertive" hidden><span id="point-title"></span><small id="point-detail"></small></div>
+          <div class="spin-label" id="spin-label" hidden>上旋</div>
+          <div class="court-welcome" id="court-welcome"><span class="welcome-kicker">YOUR NEXT GOOD RALLY STARTS HERE</span><h2>好球，就在下一拍。</h2><p>球在拍前等你。向前一挥，即可发球。</p><button class="primary-button" id="play-button">开始比赛 <span>↗</span></button><small>触屏拖动 · 鼠标同样适用</small></div>
+          <div class="serve-panel" id="serve-panel" hidden><div><b id="serve-title">轮到你发球</b><span id="serve-hint">球跟随球拍 · 向前挥拍即可发球</span></div><span class="serve-swipe" aria-hidden="true">↑</span></div>
+          <div class="gesture-guide" id="gesture-guide" hidden><div class="gesture-arrow">↑</div><span id="gesture-text">按住下半屏，向前挥拍</span></div>
+          <div class="webgl-error" id="webgl-error" hidden><h2>球场暂时无法显示</h2><p>请用支持 WebGL 的 Chrome、Safari 或 Edge 打开，并开启硬件加速。</p></div>
+        </div>
+        <div class="court-bottomline"><span class="court-status"><i id="status-dot"></i><span id="status-text">球台已就绪，等你上场</span></span><span class="input-label" id="input-label">拖动移动 <b>·</b> 前挥击球 横擦加旋</span><span id="hit-feedback" class="hit-feedback">找到你的节奏</span></div>
+      </section>
+
+      <aside class="match-panel">
+        <div class="panel-heading"><span class="eyebrow">MAKE IT YOUR GAME</span><span class="panel-mark">01 — 04</span></div>
+        <div class="session-options">
+          <label class="option-field">玩法<select id="mode-select"><option value="match">正式比赛</option><option value="rally">连续喂球练习</option><option value="slow">慢速练习 · 0.65×</option><option value="serve">发球练习</option></select></label>
+          <label class="option-field" id="ai-style-field">AI 打法<select id="ai-style"><option value="balanced">均衡型</option><option value="defensive">防守型</option><option value="aggressive">进攻型</option></select></label>
+          <p id="mode-description" class="option-description">11 分制比赛，挥拍直接发球。</p>
+        </div>
+        <h2>今天，打什么难度？</h2><p class="panel-description">从轻松热身，到认真较量。</p>
+        <fieldset class="difficulty-list"><legend class="sr-only">人机难度</legend>
+          <label class="difficulty-option selected"><input type="radio" name="difficulty" value="beginner" checked><span class="difficulty-bars"><i></i><i></i><i></i><i></i></span><span class="difficulty-copy"><b>入门</b><small>先找到手感</small></span><span class="radio-indicator"></span></label>
+          <label class="difficulty-option"><input type="radio" name="difficulty" value="standard"><span class="difficulty-bars" data-level="2"><i></i><i></i><i></i><i></i></span><span class="difficulty-copy"><b>标准</b><small>来点有来有回</small></span><span class="radio-indicator"></span></label>
+          <label class="difficulty-option"><input type="radio" name="difficulty" value="advanced"><span class="difficulty-bars" data-level="3"><i></i><i></i><i></i><i></i></span><span class="difficulty-copy"><b>进阶</b><small>考验反应与落点</small></span><span class="radio-indicator"></span></label>
+          <label class="difficulty-option"><input type="radio" name="difficulty" value="pro"><span class="difficulty-bars" data-level="4"><i></i><i></i><i></i><i></i></span><span class="difficulty-copy"><b>专业</b><small>每一拍都全力以赴</small></span><span class="radio-indicator"></span></label>
+        </fieldset>
+        <div class="format-heading"><span id="format-label">比赛赛制</span><span>11 分 · 净胜 2 分</span></div><div class="segmented-control" role="group" aria-label="赛制"><button class="selected" data-format="1" aria-pressed="true">单局决胜</button><button data-format="3" aria-pressed="false">三局两胜</button></div>
+        <div class="difficulty-detail"><span class="detail-symbol">↗</span><p id="difficulty-detail">更慢的来球，更多的反应时间。<br>电脑偶尔也会失误，放心挥拍。</p></div>
+        <button class="secondary-button practice-reset" id="practice-reset" hidden>重新准备这一球</button>
+        <button class="primary-button panel-start" id="start-button">进入球场 <span>↗</span></button><div class="local-note"><svg viewBox="0 0 16 16"><path d="m3 8 3 3 7-7"/></svg> 无需账号 · 战绩仅存于本机</div>
+      </aside>
+    </main>
+
+    <section class="below-court">
+      <div class="quick-guide"><span class="guide-number">HOW TO PLAY</span><div><span class="guide-icon">↔</span><p><b>跟着来球移动</b><small>按住屏幕下半区，左右调整球拍</small></p></div><div><span class="guide-icon">↗</span><p><b>向前挥出好球</b><small>向前挥拍发球，接触时横擦加侧旋</small></p></div><button class="text-button" id="guide-link">完整玩法 <span>↗</span></button></div>
+      <div class="stats-row"><div class="stats-intro"><span class="eyebrow">YOUR LITTLE WINS</span><h3>每一拍，都算数。</h3></div><div class="stat"><span>已完成比赛</span><strong id="stat-matches">0<small>场</small></strong></div><div class="stat"><span>胜率</span><strong id="stat-winrate">—<small>%</small></strong></div><div class="stat"><span>最高连续回合</span><strong id="stat-rally">0<small>拍</small></strong></div><button class="text-button" id="history-button">查看战绩 <span>↗</span></button></div>
+    </section>
+    <footer><span><b>PING.</b> 为每一个想打球的时刻。</span><span><i class="live-dot"></i> 本地运行 <span class="footer-divider">/</span> 没有服务器，也有好球。</span></footer>
+  </div>
+
+  <dialog id="help-dialog" class="modal"><button class="modal-close" data-close aria-label="关闭">×</button><span class="eyebrow">A LITTLE GUIDANCE</span><h2>一拍一拍，找到节奏。</h2><div class="help-steps"><div><b>01</b><p><strong>移动你的球拍</strong>按住球场下半区任意位置，左右拖动寻找来球。向上或向下拖动可调整球拍离球网的距离，系统会适度辅助拍面高度。</p></div><div><b>02</b><p><strong>等落台，再向前挥拍</strong>来球在你的半台弹起后，向上快速划动击球，也可在接触瞬间横向擦拍。球拍静止不会自动回球；向右擦拍产生左侧旋，向左擦拍产生右侧旋，球面条纹和弯曲球迹会显示旋转。</p></div><div><b>03</b><p><strong>球在拍前，向前挥拍发球</strong>轮到你发球时，球会停在球拍前方并跟随移动，无需抛球或点击按钮，向前挥拍即可发出。仍须先落自己的半台，再落对方半台。练习模式不计比赛分数。</p></div></div><div class="rules-box"><h3>按标准规则，认真打一场</h3><ul><li>发球操作已简化为持球随拍、挥拍发出；落台与计分仍遵循比赛规则。</li><li>每局 11 分，领先至少 2 分获胜；10:10 后继续比赛。</li><li>每两分换发球；10:10 后每一分换发球。</li><li>发球擦网后合法落台，重新发球；正常回合擦网后落台继续。</li><li>对手回球未落台就截击、同侧两跳、击球出界或未过网，均判失分。</li><li>三局两胜时，局间交换发球顺序；决胜局先到 5 分时交换场地。镜头始终位于你的身后。</li></ul></div><button class="primary-button" data-close>明白了，上场 <span>↗</span></button></dialog>
+  <dialog id="settings-dialog" class="modal settings-modal"><button class="modal-close" data-close aria-label="关闭">×</button><span class="eyebrow">YOUR COURT, YOUR WAY</span><h2>调整到你的手感。</h2><label class="toggle-row"><span><b>击球音效</b><small>球拍、球台与球网的声音</small></span><input type="checkbox" id="setting-sound" role="switch" checked></label><label class="toggle-row"><span><b>触觉反馈</b><small>击球时轻微震动（取决于设备支持）</small></span><input type="checkbox" id="setting-haptics" role="switch" checked></label><label class="toggle-row"><span><b>击球辅助提示</b><small>落点光圈、球迹与挥拍时机提示</small></span><input type="checkbox" id="setting-hints" role="switch" checked></label><label class="toggle-row"><span><b>挥拍灵敏度</b><small>调整拖动距离与球拍移动的比例</small></span><output id="sensitivity-value">1.0×</output></label><input class="sensitivity-slider" id="setting-sensitivity" type="range" min="0.7" max="1.5" value="1" step="0.1" aria-label="挥拍灵敏度"><label class="toggle-row"><span><b>近球轮廓</b><small>球靠近你时显示深色边缘，更容易看清</small></span><input type="checkbox" id="setting-outline" role="switch" checked></label>
+    <label class="toggle-row" for="setting-offset"><span><b>手指与球拍间距</b><small>触屏时球拍位于手指上方；0 为直接跟手</small></span><output id="offset-value">54 px</output></label><input class="sensitivity-slider" id="setting-offset" type="range" min="0" max="120" step="6" value="54" aria-label="手指与球拍间距">
+    <div class="option-field settings-quality"><label for="setting-quality">画面质量</label><select id="setting-quality"><option value="eco">省电 · 30 帧 / 无动态阴影</option><option value="balanced" selected>均衡 · 60 帧 / 标准阴影</option><option value="high">高清 · 60 帧 / 精细阴影</option></select></div>
+    <label class="toggle-row"><span><b>卡顿时自动降低画质</b><small>保持挥拍与物理更新频率，减少渲染负担</small></span><input type="checkbox" id="setting-adaptive" role="switch" checked></label><p class="settings-note" id="quality-note"></p>
+    <p class="settings-note">比赛中修改设置会暂时暂停，关闭后即可继续。</p><button class="primary-button" data-close>保存并返回 <span>↗</span></button></dialog>
+  <dialog id="pause-dialog" class="modal compact-modal"><button class="modal-close" data-close aria-label="关闭">×</button><span class="eyebrow">TAKE A BREATHER</span><h2>歇一拍，再继续。</h2><p>比分和来球都在这里等你。</p><button class="primary-button" id="resume-button">继续比赛 <span>↗</span></button><button class="secondary-button" id="restart-button">重新开始本场</button><button class="text-button" id="quit-button">结束比赛，返回球场</button></dialog>
+  <dialog id="result-dialog" class="modal compact-modal"><span class="result-mark" id="result-mark">↗</span><span class="eyebrow" id="result-eyebrow">WELL PLAYED</span><h2 id="result-title">这一局，打得漂亮。</h2><p id="result-description"></p><div class="result-score"><span id="result-player">11</span><small>:</small><span id="result-ai">8</span></div><p class="result-meta" id="result-meta"></p><button class="primary-button" id="result-next">再来一场 <span>↗</span></button><button class="secondary-button" id="result-back">返回球场</button></dialog>
+  <dialog id="history-dialog" class="modal"><button class="modal-close" data-close aria-label="关闭">×</button><span class="eyebrow">ONE RALLY AT A TIME</span><h2>你和球台的记录。</h2><div id="history-levels" class="history-levels"></div><div id="history-list" class="history-list"></div><p class="settings-note" id="storage-note">战绩仅保存在这个浏览器中，清理网站数据会一并清除。</p><button class="primary-button" data-close>继续打球 <span>↗</span></button></dialog>
+  <script src="assets/vendor/three.min.js"></script>
+  <script src="physics.js"></script>
+  <script src="audio.js"></script>
+  <script src="quality.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>

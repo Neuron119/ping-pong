@@ -254,7 +254,7 @@
       this.difficulty = options.difficulty || 'beginner'; this.state = 'idle'; this.time = 0;
       this.mode = 'match'; this.aiStyle = 'balanced'; this.characters = { player: 'ma-long', ai: 'fan-zhendong' }; this.swingRecognition = 'standard';
       this.equipment = {player:Characters.equipment('ma-long'),ai:Characters.equipment('fan-zhendong')};
-      this.signatureUsed={player:false,ai:false};this.pointHits={player:0,ai:0};this.previousPlacement={player:0,ai:0};
+      this.signatureUsed={player:false,ai:false};this.signatureCooldown={player:0,ai:0};this.pointHits={player:0,ai:0};this.previousPlacement={player:0,ai:0};
       this.practice = { attempts: 0, successes: 0, streak: 0, bestStreak: 0 };
       this.lastShot = null;
       this.player = { x: .35, y: 1.08, z: 1.62, vx: 0, vz: 0, targetX: .35, targetZ: 1.62, activeUntil: 0, swingUntil: 0, swingVX: 0, swingVZ: 0, contactAt: -10, gestures: [], cutting: false };
@@ -274,6 +274,7 @@
       this.swingRecognition = ['easy','standard','firm'].includes(options.swingRecognition) ? options.swingRecognition : 'standard';
       this.practice = { attempts: 0, successes: 0, streak: 0, bestStreak: 0 };
       this.match = new Match(bestOf, firstServer); this.rally = this.maxRally = this.totalHits = 0;
+      this.signatureCooldown = {player:0,ai:0};
       this.lastShot = null; this.ai.lastTargetX = 0; this.ai.contactAt = -10;
       this.time = 0; this.player.x = this.player.targetX = 0; this.player.z = this.player.targetZ = 1.62;
       this.player.y = 1.08; this.player.vy = 0; this.player.heightLock = null; this.endPlayerDrag(); this.player.contactAt = -10; this.player.swingUntil = 0; this.player.gestures = []; this.ai.x = 0; this.ai.y=1.08;this.ai.vy=0;this.ai.z=-1.62;this.ai.targetX=0;this.ai.targetZ=-1.62;
@@ -613,7 +614,7 @@
       targetX=clamp(targetX,-1.3,1.3);
       b.spinX*=competing?Characters.modifier(character,'spin'):1;b.spinY*=competing?Characters.modifier(character,'spin'):1;
       const handed=this.equipment[side].hand==='left'?-1:1,facing=side==='player'?1:-1;
-      const signature=competing?Characters.signature(character,{used:this.signatureUsed[side],legal:this.bounces>=1&&this.lastHitter===opposite(side),contact,hits:this.pointHits[side],power:side==='player'?Math.max(0,-p.swingVZ):Math.min(6,speed),brush:side==='player'?p.swingVX:b.spinY/25,z:paddle.z*facing,backhand:paddle.x*facing*handed<-.14,targetX,previousX:this.previousPlacement[side]}):null;
+      const signature=competing&&this.signatureCooldown[side]===0?Characters.signature(character,{used:this.signatureUsed[side],legal:this.bounces>=1&&this.lastHitter===opposite(side),contact,hits:this.pointHits[side],power:side==='player'?Math.max(0,-p.swingVZ):Math.min(6,speed),brush:side==='player'?p.swingVX:b.spinY/25,z:paddle.z*facing,backhand:paddle.x*facing*handed<-.14,targetX,previousX:this.previousPlacement[side]}):null;
       if(signature){this.signatureUsed[side]=true;speed*=signature.speed;b.spinX*=signature.spin;b.spinY*=signature.spin;}
       this.pointHits[side]++;this.previousPlacement[side]=targetX;
       speed=clamp(speed,1.85,10.6);
@@ -636,6 +637,9 @@
       if (this.mode !== 'match') { this.finishPractice(false, reason); return; }
       const result = this.match.award(winner);
       if (!result) return;
+      // Only scored points advance cooldown. The activation point starts it,
+      // then two complete points must pass; lets and game changes do not count.
+      for(const side of ['player','ai'])this.signatureCooldown[side]=this.signatureUsed[side]?2:Math.max(0,this.signatureCooldown[side]-1);
       this.state = 'point'; this.pointTime = this.time;
       this.emit('point', { winner, reason, rally: this.rally, result });
     }

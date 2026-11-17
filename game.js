@@ -430,7 +430,7 @@
     for(const side of ['player','ai']) {
       $(side+'-character').value=selectedCharacters[side];const p=character(selectedCharacters[side]);
       const identity=PingCharacters.profile(p.id);
-      $(side+'-character-detail').innerHTML=`<div class="character-identity">${portrait(p,'character-portrait')}<div><b>${p.name}</b><small>${p.region} · ${p.hand==='left'?'左手':'右手'}${p.grip}</small></div></div>${radar(p)}<p class="character-bio">${identity.strength}<br><span class="character-weakness">短板 · ${identity.weakness}</span></p><details class="character-signature"><summary>${identity.signature}</summary><p>${identity.trigger}。每分一次，需拍心准确接球。</p></details><small class="rating-note">鲜明风格 · 游戏设定，非现实评分</small>`;
+      $(side+'-character-detail').innerHTML=`<div class="character-identity">${portrait(p,'character-portrait')}<div><b>${p.name}</b><small>${p.region} · ${p.hand==='left'?'左手':'右手'}${p.grip}</small></div></div>${radar(p)}<p class="character-bio">${identity.strength}<br><span class="character-weakness">短板 · ${identity.weakness}</span></p><details class="character-signature"><summary>${identity.signature}</summary><p>${identity.trigger}。需拍心准确接球，每分最多一次；比赛中释放后，接下来 2 分冷却，第 3 分恢复资格。双方独立计算。</p></details><small class="rating-note">鲜明风格 · 游戏设定，非现实评分</small>`;
     }
   }
   for(const side of ['player','ai']) {
@@ -717,5 +717,5 @@
   for(const side of ['player','ai'])$('setting-'+side+'-blade').innerHTML='<option value="auto">跟随选手代表装备</option>'+Object.entries(PingCharacters.BLADES).map(([id,p])=>`<option value="${id}">${p.name}</option>`).join('');
   syncSettings();updateSelection();renderStats();initScene();requestAnimationFrame(frame);
   // A read-only snapshot makes diagnostics possible without changing a live match.
-  window.PING=Object.freeze({snapshot:()=>({...sim.snapshot(),lastShot:sim.lastShot?{...sim.lastShot}:null}),project:(x,y,z)=>projectPoint(x,y,z),quality:()=>({selected:quality.selected,effective:quality.effective,adaptive:quality.adaptive}),appearance:()=>({ballSize:settings.ballSize,ballColor:settings.ballColor,paddleColor:settings.paddleColor,paddleModel:settings.paddleModel,scene:settings.scene}),version:'1.4.0'});
+  window.PING=Object.freeze({snapshot:()=>({...sim.snapshot(),lastShot:sim.lastShot?{...sim.lastShot}:null}),project:(x,y,z)=>projectPoint(x,y,z),quality:()=>({selected:quality.selected,effective:quality.effective,adaptive:quality.adaptive}),appearance:()=>({ballSize:settings.ballSize,ballColor:settings.ballColor,paddleColor:settings.paddleColor,paddleModel:settings.paddleModel,scene:settings.scene}),version:'1.4.1'});
 })();

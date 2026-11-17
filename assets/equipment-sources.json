@@ -1,0 +1,97 @@
+{
+  "version": "1.4.0",
+  "checked_date": "2026-11-17",
+  "scope": "代表装备的风格化外观参考，不保证当前定制比赛配置或精确复刻。装备外观不提供属性加成。",
+  "equipment": [
+    {
+      "athlete": "ma-long",
+      "name": "马龙",
+      "blade": "DHS W968 / 狂飚龙5",
+      "source": "https://tabletennis.guide/player/long-ma",
+      "product": "https://www.dhssportsusa.com/products/dhs-6-gold-w968-hurricane-long-5-table-tennis-blade",
+      "note": "选手资料：DHS W968；参考同系列公开外观。",
+      "confirmed": true
+    },
+    {
+      "athlete": "fan-zhendong",
+      "name": "樊振东",
+      "blade": "Butterfly 樊振东 ALC",
+      "source": "https://www.butterfly.co.jp/players/detail/fan-zhendong.html",
+      "product": "https://www.butterfly-global.com/en/products/detail/37221.html",
+      "note": "厂商选手页：2022-07-19 所列樊振东 ALC。",
+      "confirmed": true
+    },
+    {
+      "athlete": "wang-chuqin",
+      "name": "王楚钦",
+      "blade": "DHS Q968",
+      "source": "https://tabletennis.guide/profile.php?name=chuqin-wang-121558",
+      "product": "https://www.dhssportsusa.com/products/dhs-hurricane-king-q968-table-tennis-blade",
+      "note": "选手资料：DHS Q968；厂商有对应公开产品。",
+      "confirmed": true
+    },
+    {
+      "athlete": "xu-xin",
+      "name": "许昕",
+      "blade": "STIGA Dynasty Carbon 许昕版",
+      "source": "https://www.stigasports.com/en/players-teams-tt/xu-xin",
+      "product": "",
+      "note": "厂商选手页：Dynasty Carbon Xu Xin Edition。",
+      "confirmed": true
+    },
+    {
+      "athlete": "zhang-jike",
+      "name": "张继科",
+      "blade": "Butterfly Viscaria · 张继科代表装备",
+      "source": "https://tabletennis.guide/player/jike-zhang",
+      "product": "https://www.butterfly-global.com/en/products/detail/30041.html",
+      "note": "选手资料：Butterfly Viscaria，作为代表装备参考。",
+      "confirmed": true
+    },
+    {
+      "athlete": "lin-gaoyuan",
+      "name": "林高远",
+      "blade": "远鉴 干将 AL-carbon · 资料参考",
+      "source": "https://tabletennis.guide/profile.php?name=gaoyuan-lin-115910",
+      "product": "",
+      "note": "选手资料：Yuanjian Ganjiang Sword AL-carbon；外观为概括参考。",
+      "confirmed": true
+    },
+    {
+      "athlete": "liang-jingkun",
+      "name": "梁靖崑",
+      "blade": "专业木纹拍 · 自定义外观",
+      "source": "https://tabletennis.guide/profile.php?name=jingkun-liang-119588",
+      "product": "",
+      "note": "未找到足够依据确认底板型号，默认使用 PING CLUB 自定义木纹拍，可在设置中覆盖。",
+      "confirmed": false
+    },
+    {
+      "athlete": "harimoto",
+      "name": "张本智和",
+      "blade": "Butterfly 张本智和 Innerforce SUPER ALC",
+      "source": "https://www.butterfly.co.jp/players/detail/harimoto-tomokazu.html",
+      "product": "https://www.butterfly-global.com/en/products/detail/37331.html",
+      "note": "厂商选手页：2025-10-11 所列 Innerforce SUPER ALC。",
+      "confirmed": true
+    },
+    {
+      "athlete": "lin-yun-ju",
+      "name": "林昀儒",
+      "blade": "Butterfly Viscaria SUPER ALC",
+      "source": "https://www.butterfly.co.jp/players/detail/lin-yunju.html",
+      "product": "https://www.butterfly-global.com/en/products/detail/37191.html",
+      "note": "厂商选手页：2026-01-05 所列 Viscaria SUPER ALC。",
+      "confirmed": true
+    },
+    {
+      "athlete": "moregard",
+      "name": "莫雷加德",
+      "blade": "STIGA Cybershape Carbon Truls版",
+      "source": "https://www.stigasports.com/en/players-teams-tt/truls-moregardh",
+      "product": "https://www.stigasports.com/en/product/cybershape-carbon-cwt-truls-edition",
+      "note": "厂商选手页：Cybershape Carbon Truls Edition，游戏保留多边形拍面特征。",
+      "confirmed": true
+    }
+  ]
+}

@@ -2,12 +2,12 @@
 (function (root) {
   'use strict';
   const SCENES = Object.freeze({
-    club: { name: '室内球馆', sky: '#dcded1', fog: '#dedfd3', sun: '#fff0d0', ground: '#9aab96', ambient: '#fffcdf', intensity: 3.8, exposure: 1.15 },
+    club: { name: '室内球馆', sky: '#d6d8c9', fog: '#d9dcce', sun: '#ffe9cd', ground: '#7a8b78', ambient: '#f4f6eb', intensity: 2.65, exposure: 1.02 },
     park: { name: '户外公园', sky: '#bcd7df', fog: '#c1d7cd', sun: '#ffedc5', ground: '#819474', ambient: '#e5f4fb', intensity: 3.7, exposure: 1.08 },
     coast: { name: '海边球场', sky: '#b5dbe8', fog: '#c0dfe8', sun: '#fff0c9', ground: '#acaa92', ambient: '#e9f8ff', intensity: 4.0, exposure: 1.05 },
     rooftop: { name: '屋顶球场', sky: '#b9b4ce', fog: '#b9b7cd', sun: '#ffca9b', ground: '#777f92', ambient: '#e5e2ff', intensity: 3.2, exposure: 1.13 }
   });
-  const MODEL_NAMES = Object.freeze({ classic: '经典圆拍', attack: '进攻方肩拍', jpen: '日式方拍' });
+  const MODEL_NAMES = Object.freeze({ athlete:'跟随参考球拍', classic: '经典圆拍', attack: '进攻方肩拍', jpen: '日式方拍' });
   let rubberMap, woodMap;
   const mat = (color, options = {}) => new THREE.MeshStandardMaterial({ color, roughness: .8, ...options });
   function tex(draw) {
@@ -28,7 +28,10 @@
   }
   function bladeShape(model) {
     const s = new THREE.Shape();
-    if (model === 'jpen') {
+    if (model === 'cybershape') {
+      const points=[[-.082,-.148],[-.155,-.040],[-.155,.092],[-.083,.173],[.083,.173],[.155,.092],[.155,-.040],[.082,-.148]];
+      s.moveTo(...points[0]);for(const point of points.slice(1))s.lineTo(...point);s.closePath();
+    } else if (model === 'jpen') {
       s.moveTo(-.105, -.145); s.quadraticCurveTo(-.14, -.14, -.14, -.1);
       s.lineTo(-.14, .12); s.quadraticCurveTo(-.14, .165, -.10, .17);
       s.lineTo(.10, .17); s.quadraticCurveTo(.14, .165, .14, .12);
@@ -40,11 +43,12 @@
     } else s.absellipse(0, 0, .153, .169, 0, Math.PI * 2, false);
     return s;
   }
-  function createPaddle(model = 'classic', color = '#405f4b', isPlayer = true) {
+  function createPaddle(model = 'classic', color = '#405f4b', isPlayer = true, equipment = {}) {
     if (!rubberMap) rubberMap = tex(ctx => {
-      ctx.fillStyle = '#f1f1f1'; ctx.fillRect(0, 0, 256, 256);
-      for (let y = 0; y < 256; y += 5) for (let x = 0; x < 256; x += 5) {
-        ctx.fillStyle = ((x + y) % 3) ? '#d9d9d9' : '#e6e6e6'; ctx.beginPath(); ctx.arc(x + (y % 2) * 2, y, .8, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#f3f3f3'; ctx.fillRect(0, 0, 256, 256);
+      for (let i = 0; i < 7000; i++) {
+        const x=(i*73.319)%256,y=(i*39.713)%256;
+        ctx.fillStyle='rgba(55,55,55,.025)';ctx.fillRect(x,y,.6,.6);
       }
     });
     if (!woodMap) woodMap = tex(ctx => {
@@ -52,15 +56,17 @@
       for (let i = 0; i < 65; i++) { ctx.strokeStyle = `rgba(94,57,24,${.05 + (i % 6) * .014})`; ctx.beginPath(); ctx.moveTo(i * 4, 0); ctx.bezierCurveTo(i * 4 + 6, 80, i * 4 - 4, 160, i * 4 + 2, 256); ctx.stroke(); }
     });
     const g = new THREE.Group(); g.name = isPlayer ? 'player-paddle' : 'ai-paddle'; g.userData.model = model;
-    const shape = bladeShape(model), wood = mat('#fff4dc', { map: woodMap, roughness: .65 });
+    const profile=equipment.profile||{brand:'PING CLUB',label:'CLUB SERIES',stripe:'#36584d',accent:'#b59d69',wood:'#dfbe8a'},penhold=equipment.grip==='penhold';
+    g.userData.profile=profile.id||'club';g.userData.grip=equipment.grip||'shakehand';
+    const shape = bladeShape(model), wood = mat(profile.wood, { map: woodMap, roughness: .62 });
     function layer(z, depth, scale, material, name) {
       const geometry = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments: 28, steps: 1 });
       const mesh = new THREE.Mesh(geometry, material); mesh.scale.set(scale, scale, 1); mesh.position.z = z;
       mesh.castShadow = true; mesh.receiveShadow = true; mesh.name = name || 'blade-layer'; g.add(mesh); return mesh;
     }
     layer(-.009, .018, 1, wood);
-    for (const z of [-.006, -.002, .002, .006]) layer(z, .0012, 1.002, mat('#795738'));
-    layer(-.012, .003, .984, mat('#d3a147')); layer(.009, .003, .984, mat('#d3a147'));
+    for (const z of [-.006, -.002, .002, .006]) layer(z, .001, 1.002, mat(Math.abs(z)>.004?'#34434a':'#a27d56'));
+    layer(-.012, .003, .984, mat('#d49b45')); layer(.009, .003, .984, mat('#d49b45'));
     const rubber = mat(color, { map: rubberMap, roughness: .9 });
     layer(.012, .0035, .977, rubber, 'rubber-front'); layer(-.0155, .0035, .977, mat('#252a2a', { map: rubberMap, roughness: .9 }), 'rubber-back');
     // Thin dark edge tape is a ring, leaving wood plies visible from the side.
@@ -68,18 +74,79 @@
     const pts = shape.getPoints(64); hole.setFromPoints(pts.map(p => p.clone().multiplyScalar(.986))); ring.holes.push(hole);
     const edge = new THREE.Mesh(new THREE.ExtrudeGeometry(ring, { depth: .003, bevelEnabled: false, curveSegments: 28 }), mat('#334039'));
     edge.position.z = .008; g.add(edge);
-    const handle = new THREE.Mesh(new THREE.BoxGeometry(model === 'jpen' ? .056 : .048, .17, .042), wood);
-    handle.position.set(0, -.225, 0); handle.name = 'wood-handle'; handle.castShadow = true; g.add(handle);
-    for (const x of [-.018, .018]) cube(g, x, -.23, .023, .008, .151, .004, '#36584d');
-    cube(g, 0, -.309, 0, .055, .012, .045, '#283e36', { metalness: .22, roughness: .4 });
-    cube(g, 0, -.15, .025, .049, .024, .008, model === 'jpen' ? '#b58a54' : '#b59d69');
+    const end=penhold?-.263:-.310,half=penhold?.025:.029;
+    const handleShape=new THREE.Shape();handleShape.moveTo(-.020,-.146);handleShape.bezierCurveTo(-.024,-.190,-.018,end+.045,-half,end+.010);handleShape.quadraticCurveTo(-half-.002,end,0,end);handleShape.quadraticCurveTo(half+.002,end,half,end+.010);handleShape.bezierCurveTo(.018,end+.045,.024,-.190,.020,-.146);handleShape.closePath();
+    const handle = new THREE.Mesh(new THREE.ExtrudeGeometry(handleShape,{depth:.033,bevelEnabled:true,bevelSize:.004,bevelThickness:.004,bevelSegments:3,steps:1,curveSegments:20}),wood);
+    handle.position.z=-.0165;handle.name='wood-handle';handle.castShadow=true;g.add(handle);
+    for(const z of [-.022,.022]) {
+      for(const x of [-.013,.013]) {
+        const stripe=cube(g,x,(-.15+end)/2,z,.008,Math.abs(end+.15)-.009,.0015,profile.stripe);stripe.rotation.z=x>0?-.025:.025;
+        cube(g,x*.48,(-.15+end)/2,z+Math.sign(z)*.0005,.0025,Math.abs(end+.15)-.012,.0016,profile.accent);
+      }
+    }
+    const cap=sphere(g,0,end+.007,0,.025,profile.stripe,1,.30,.79);cap.name='handle-cap';
+    const medallion=sphere(g,0,end+.031,.023,.008,profile.accent,1,.80,.16);medallion.name='handle-medallion';
+    cube(g,0,-.152,.024,.047,.018,.005,profile.accent);
     if (model === 'jpen') cube(g, 0, -.168, -.034, .062, .052, .025, '#c3a06e');
-    const emblem = tex(ctx => { ctx.fillStyle = '#e5eacc'; ctx.font = 'bold 75px Arial'; ctx.textAlign = 'center'; ctx.fillText('P.', 128, 130); ctx.font = '19px Arial'; ctx.fillText('PING CLUB', 128, 165); });
-    const badge = new THREE.Mesh(new THREE.PlaneGeometry(.105, .105), new THREE.MeshBasicMaterial({ map: emblem, transparent: true, depthWrite: false }));
-    badge.position.set(0, -.045, .0162); badge.name = 'paddle-badge'; g.add(badge);
+    const emblem = tex(ctx => { ctx.fillStyle='#f1d9bc';ctx.globalAlpha=.65;ctx.textAlign='center';ctx.font='bold 24px Arial';ctx.fillText(profile.brand,128,110);ctx.font='13px Arial';ctx.fillText(profile.label,128,134);ctx.font='10px Arial';ctx.fillText('TABLE TENNIS  •  INVERTED',128,151);});
+    for(const facing of [1,-1]){
+      const badge = new THREE.Mesh(new THREE.PlaneGeometry(.135,.060),new THREE.MeshBasicMaterial({map:emblem,transparent:true,depthWrite:false}));
+      badge.position.set(0,-.116,facing*.0165);if(facing<0)badge.rotation.y=Math.PI;badge.name=facing===1?'paddle-badge':'paddle-badge-back';g.add(badge);
+    }
+    // A penhold blade hangs below the pinch while its handle points towards
+    // the hand. Rotate around the blade centre so the contact stays aligned.
+    g.userData.gripRotation=penhold?Math.PI:0;
+    if(penhold)for(const child of g.children){child.position.x*=-1;child.position.y*=-1;child.rotateZ(Math.PI);}
     return g;
   }
   function setPaddleColor(g, color) { g.getObjectByName('rubber-front')?.material.color.set(color); }
+  const gripGeometry = {};
+  function createGrip(isPlayer) {
+    const group = new THREE.Group(); group.name = isPlayer ? 'player-arm' : 'ai-arm';
+    const hand = new THREE.Group(); hand.name = 'gripping-hand'; group.add(hand);
+    const skin = mat(isPlayer ? '#d4a17e' : '#c59270', { roughness: .83 });
+    const grips = {};
+    for (const kind of ['shakehand','penhold']) {
+      const source=PingHandMeshes[kind];
+      if(!gripGeometry[kind]) {
+        const geometry=new THREE.BufferGeometry();
+        geometry.setAttribute('position',new THREE.Float32BufferAttribute(source.positions.map(v=>v/100000),3));
+        geometry.setIndex(source.indices);geometry.computeVertexNormals();
+        gripGeometry[kind]=geometry;
+      }
+      const grip=new THREE.Group();grip.name='grip-'+kind;
+      const mesh=new THREE.Mesh(gripGeometry[kind],skin);
+      mesh.name='hand-surface';mesh.castShadow=true;mesh.receiveShadow=true;
+      grip.userData.wrist=new THREE.Vector3(...source.wrist);
+      grip.userData.fingers=5;grip.add(mesh);hand.add(grip);grips[kind]=grip;
+    }
+    const axis=new THREE.Vector3(0,1,0);
+    const profile=[[.050,0],[.053,.16],[.050,.38],[.041,.68],[.031,.88],[.024,1]].map(([r,y])=>new THREE.Vector2(r,y));
+    const forearm = new THREE.Mesh(new THREE.LatheGeometry(profile,24),skin);
+    forearm.name='forearm';forearm.castShadow=true;forearm.receiveShadow=true;group.add(forearm);
+    const cuff = new THREE.Mesh(new THREE.CylinderGeometry(.054,.057,1,24),mat(isPlayer?'#365c4c':'#9c5847',{roughness:.9}));
+    cuff.name='sleeve-cuff';cuff.castShadow=true;group.add(cuff);
+    const trim = new THREE.Mesh(new THREE.CylinderGeometry(.0545,.055,1,24),mat('#e7e4d0'));
+    trim.name='cuff-trim';group.add(trim);
+    group.userData={hand,...grips,forearm,cuff,trim,wrist:new THREE.Vector3(),elbow:new THREE.Vector3(),axis,direction:new THREE.Vector3(),rotation:new THREE.Quaternion()};
+    return group;
+  }
+  function updateGrip(group,paddle,handedness='right',isPlayer=true,grip='shakehand') {
+    const data=group.userData,sign=handedness==='left'?-1:1,facing=isPlayer?1:-1,penhold=grip==='penhold';
+    data.shakehand.visible=!penhold;data.penhold.visible=penhold;group.userData.grip=grip;group.userData.handedness=handedness;
+    data.hand.position.copy(paddle.position);data.hand.quaternion.copy(paddle.quaternion);data.hand.scale.set(sign*facing,1,facing);
+    const turn=penhold?-1:1;
+    data.shakehand.rotation.z=0;data.penhold.rotation.z=Math.PI;
+    data.wrist.copy((penhold?data.penhold:data.shakehand).userData.wrist);
+    data.wrist.x*=turn;data.wrist.y*=turn;
+    data.wrist.multiply(data.hand.scale).applyQuaternion(paddle.quaternion).add(paddle.position);
+    data.elbow.set(paddle.position.x+sign*facing*.25,Math.max(.53,paddle.position.y-.36),isPlayer?Math.max(1.68,paddle.position.z+.44):Math.min(-1.68,paddle.position.z-.44));
+    const length=data.direction.subVectors(data.wrist,data.elbow).length();
+    data.rotation.setFromUnitVectors(data.axis,data.direction.normalize());
+    data.forearm.position.copy(data.elbow);data.forearm.quaternion.copy(data.rotation);data.forearm.scale.y=length;
+    data.cuff.position.copy(data.elbow).lerp(data.wrist,.07);data.cuff.quaternion.copy(data.rotation);data.cuff.scale.y=.115;
+    data.trim.position.copy(data.elbow).lerp(data.wrist,.07).addScaledVector(data.direction,.06);data.trim.quaternion.copy(data.rotation);data.trim.scale.y=.011;
+  }
   function disposePaddle(g) {
     const geometries = new Set(), materials = new Set();
     g.traverse(o => { if (o.geometry) geometries.add(o.geometry); if (o.material) materials.add(o.material); });
@@ -138,5 +205,5 @@
     }
     return g;
   }
-  root.PingVisuals = Object.freeze({ SCENES, MODEL_NAMES, createPaddle, setPaddleColor, disposePaddle, createOutdoor });
+  root.PingVisuals = Object.freeze({ SCENES, MODEL_NAMES, createPaddle, setPaddleColor, createGrip, updateGrip, disposePaddle, createOutdoor });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

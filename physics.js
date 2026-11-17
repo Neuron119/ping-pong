@@ -20,6 +20,19 @@
   });
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const opposite = side => side === 'player' ? 'ai' : 'player';
+  // Direction uses the ratio of lateral / forward movement, so the same
+  // diagonal gesture aims the same way on a phone and with a mouse.
+  function playerPlacement(p, b, serving = false) {
+    const power = clamp(-p.swingVZ, .32, 6);
+    const steering = Math.tanh(p.swingVX / Math.max(power, .38) * 1.5);
+    const strength = clamp((power - .32) / 5.68, 0, 1);
+    const x = clamp(b.x * .68 + steering * .78 + (b.x - p.x) * .24, -.69, .69);
+    const depth = serving ? .38 + strength * .70 : .28 + Math.pow(strength, .72) * .95;
+    return { x, z: -depth, power, steering };
+  }
+  function placementName(x, z) {
+    return (x < -.25 ? '左路' : x > .25 ? '右路' : '中路') + (Math.abs(z) < .58 ? '短球' : Math.abs(z) > 1.02 ? '长球' : '半长球');
+  }
   // Coordinate system: +x right, +y up, player at +z. A rightward brush
   // on the rear of the ball produces +spinY; omega cross velocity bends it left.
   function advanceBall(b, dt) {
@@ -50,16 +63,16 @@
   // corrects height and a portion of sidespin drift; the curve remains visible.
   function aimFlight(b, targetX, targetZ, speed, assistance = .64) {
     const start = { ...b }, distance = Math.abs(targetZ - start.z);
-    let flight = clamp(distance / Math.max(speed, 1), .30, .90), best;
+    let flight = clamp(distance / Math.max(speed, 1), .23, .90), best;
     for (let attempt = 0; attempt < 16; attempt++) {
       let vx = (targetX - start.x) / flight, vz = (targetZ - start.z) / flight;
       let vy = (C.tableY + C.radius - start.y + .5 * C.gravity * flight * flight) / flight;
       let netY = -Infinity;
-      for (let iteration = 0; iteration < 5; iteration++) {
+      for (let iteration = 0; iteration < 10; iteration++) {
         const trial = { ...start, vx, vy, vz }; netY = -Infinity;
         let elapsed = 0;
         while (elapsed < flight - 1e-8) {
-          const h = Math.min(1 / 120, flight - elapsed), previous = { ...trial };
+          const h = Math.min(C.step, flight - elapsed), previous = { ...trial };
           advanceBall(trial, h); elapsed += h;
           if (previous.z * trial.z <= 0) {
             const f = previous.z / (previous.z - trial.z);
@@ -77,20 +90,69 @@
     }
     Object.assign(b, best);
   }
+  function aimServe(b, targetX, targetZ) {
+    const start = { ...b }, direction = Math.sign(targetZ);
+    let best = null;
+    // Search downward contact angles, then solve both bounce positions with
+    // the actual spin/drag model. A valid candidate must clear the net and
+    // first land on the server's half, even from a wide starting position.
+    for (const vy of [-1.24, -.65, -1.8, -.25, -2.4, -3.1]) {
+      let vx = (targetX - start.x) / .78, vz = direction * 3.8, trial, first, netY, elapsed;
+      for (let iteration = 0; iteration < 15; iteration++) {
+        trial = { ...start, vx, vy, vz }; first = null; netY = -Infinity; elapsed = 0;
+        let count = 0;
+        while (elapsed < 2 && count < 2) {
+          const previous = { ...trial }; advanceBall(trial, C.step); elapsed += C.step;
+          if (previous.z * trial.z <= 0) {
+            const f = previous.z / (previous.z - trial.z);
+            netY = previous.y + (trial.y - previous.y) * f;
+          }
+          if (trial.y <= C.tableY + C.radius && previous.y > C.tableY + C.radius && trial.vy < 0) {
+            // Interpolate to the same surface used by the swept collision.
+            const f = (previous.y - C.tableY - C.radius) / (previous.y - trial.y);
+            trial.x = previous.x + (trial.x - previous.x) * f;
+            trial.z = previous.z + (trial.z - previous.z) * f;
+            trial.y = C.tableY + C.radius; count++;
+            if (count === 1) { first = { ...trial }; reboundBall(trial); }
+          }
+        }
+        if (iteration < 14) {
+          vx += (targetX - trial.x) / Math.max(elapsed, .4) * .82;
+          vz += (targetZ - trial.z) / Math.max(elapsed, .4) * .87;
+        }
+      }
+      const error = Math.hypot(targetX - trial.x, targetZ - trial.z);
+      const legal = first && first.z * direction < -C.radius && Math.abs(first.z) < C.halfLength - .025
+        && Math.abs(first.x) < C.halfWidth - .025 && netY > C.tableY + C.netHeight + C.radius + .012;
+      const score = error * 10 + Math.abs(netY - 1.02) + (legal ? 0 : 100);
+      if (!best || score < best.score) best = { vx, vy, vz, score };
+      if (legal && error < .012 && Math.abs(netY - 1.02) < .055) break;
+    }
+    Object.assign(b, { vx: best.vx, vy: best.vy, vz: best.vz });
+  }
   function spinName(b, fallback = '上旋') {
     return Math.abs(b.spinY) > 24 ? (b.spinY > 0 ? '左侧旋' : '右侧旋') : fallback;
   }
   function strokeContext(p, b, incoming = true, options = {}) {
     const facing = options.side === 'ai' ? -1 : 1, hand = options.hand === 'left' ? -1 : 1;
     const x = p.x * facing, z = p.z * facing;
-    const reach = clamp(x / 1.03, -1, 1), lean = -reach * .26;
+    const reach = clamp(x / 1.03, -1, 1);
+    // A backhand rotates around the blade normal: the head points toward the
+    // ball and the handle toward the wrist. Smoothstep avoids a pose snap at
+    // the center line; mirrored left-handed players use the same curve.
+    const expected = Number.isFinite(options.contactX) ? options.contactX * facing : x;
+    const lateral = incoming ? x * .75 + expected * .25 : x;
+    const amount = clamp((-lateral * hand - .08) / .49, 0, 1);
+    const backhand = amount * amount * (3 - 2 * amount);
+    const lean = -reach * .20 + hand * backhand * 1.36;
     let pose;
     if (incoming && b.y > 1.42 && z > 1.20) pose = { key: 'smash', name: '高球扣杀', pitch: -.34, yaw: reach * .13, roll: lean - .08 * hand };
     else if (z < 1.24 && (!incoming || b.y < 1.28)) pose = { key: 'push', name: '近网搓球', pitch: -.64, yaw: reach * .16, roll: lean };
     else if (x * hand < -.16) pose = { key: 'backhand', name: '反手挡球', pitch: -.16, yaw: -.27 * hand, roll: lean + .06 * hand };
     else pose = { key: 'forehand', name: '正手攻球', pitch: -.19, yaw: .20 * hand + reach * .08, roll: lean - .05 * hand };
     // Rotate the entire local stroke into the opponent's facing direction.
-    return { ...pose, pitch: pose.pitch * facing, yaw: pose.yaw * facing, roll: pose.roll * facing };
+    if(options.grip==='penhold') { pose.pitch-=.07;pose.yaw+=hand*.06; }
+    return { ...pose, pitch: pose.pitch * facing, yaw: pose.yaw * facing, roll: clamp(lean+hand*(-.05+.11*backhand),-1.54,1.54) * facing };
   }
   function smoothHeight(p, target, dt, maxSpeed = .82) {
     const desired = clamp((target - p.y) * 11, -maxSpeed, maxSpeed);
@@ -191,7 +253,10 @@
       this.random = options.random || Math.random; this.onEvent = options.onEvent || (() => {});
       this.difficulty = options.difficulty || 'beginner'; this.state = 'idle'; this.time = 0;
       this.mode = 'match'; this.aiStyle = 'balanced'; this.characters = { player: 'ma-long', ai: 'fan-zhendong' }; this.swingRecognition = 'standard';
+      this.equipment = {player:Characters.equipment('ma-long'),ai:Characters.equipment('fan-zhendong')};
+      this.signatureUsed={player:false,ai:false};this.pointHits={player:0,ai:0};this.previousPlacement={player:0,ai:0};
       this.practice = { attempts: 0, successes: 0, streak: 0, bestStreak: 0 };
+      this.lastShot = null;
       this.player = { x: .35, y: 1.08, z: 1.62, vx: 0, vz: 0, targetX: .35, targetZ: 1.62, activeUntil: 0, swingUntil: 0, swingVX: 0, swingVZ: 0, contactAt: -10, gestures: [], cutting: false };
       this.ai = { x: 0, y: 1.08, z: -1.57, targetX: 0, targetZ: -1.57, decideAt: 0, willMiss: false, aimError: 0 };
       this.ball = { x: 0, y: 1.1, z: 1.6, vx: 0, vy: 0, vz: 0, spinX: 0, spinY: 0, spinZ: 0 };
@@ -204,15 +269,18 @@
       this.difficulty = LEVELS[difficulty] ? difficulty : 'beginner';
       this.mode = ['rally','slow','serve'].includes(options.mode) ? options.mode : 'match';
       this.characters = Characters.pair(options.playerCharacter, options.aiCharacter);
+      this.setEquipment(options.equipment || {});
       this.aiStyle = STYLES[options.aiStyle] ? options.aiStyle : Characters.get(this.characters.ai).tactic;
       this.swingRecognition = ['easy','standard','firm'].includes(options.swingRecognition) ? options.swingRecognition : 'standard';
       this.practice = { attempts: 0, successes: 0, streak: 0, bestStreak: 0 };
       this.match = new Match(bestOf, firstServer); this.rally = this.maxRally = this.totalHits = 0;
+      this.lastShot = null; this.ai.lastTargetX = 0; this.ai.contactAt = -10;
       this.time = 0; this.player.x = this.player.targetX = 0; this.player.z = this.player.targetZ = 1.62;
       this.player.y = 1.08; this.player.vy = 0; this.player.heightLock = null; this.endPlayerDrag(); this.player.contactAt = -10; this.player.swingUntil = 0; this.player.gestures = []; this.ai.x = 0; this.ai.y=1.08;this.ai.vy=0;this.ai.z=-1.62;this.ai.targetX=0;this.ai.targetZ=-1.62;
       this.prepare();
     }
     prepare() {
+      this.signatureUsed={player:false,ai:false};this.pointHits={player:0,ai:0};this.previousPlacement={player:0,ai:0};
       this.state = 'ready'; this.rally = 0; this.lastHitter = null; this.expectedSide = null;
       this.bounces = 0; this.serveStage = 0; this.netTouched = false; this.player.swingUntil = 0; this.player.gestures = []; this.player.heightLock = null; this.endPlayerDrag(); this.playerPlan = null; this.playerPlanAt = -1; this.netContactAt = -10; this.netFailed = false; this.aiPlan = null; this.aiPlanAt = -1;
       this.player.z = this.player.targetZ = 1.62;
@@ -232,6 +300,9 @@
       this.player.strokeAnchor = null;
       this.player.dragOffsetX = 0; this.player.dragOffsetZ = 0;
     }
+    setEquipment(overrides={}) {
+      for(const side of ['player','ai'])this.equipment[side]=Characters.equipment(this.characters[side],overrides[side]);
+    }
     movePlayer(x, z, vx, vz) {
       const serving = this.state === 'ready' && this.server === 'player';
       const p = this.player, b = this.ball;
@@ -243,10 +314,12 @@
       const eta = b.vz > 0 ? (p.z - .032 - b.z) / b.vz : Infinity;
       const nearContact = this.state === 'rally' && this.lastHitter === 'ai' && this.bounces === 1
         && eta >= -.045 && eta < .18 && Math.abs(b.x + b.vx * Math.max(0, eta) - p.x) < .29;
-      const fastStroke = nearContact && vz < -threshold;
+      const fastStroke = nearContact && (vz < -threshold || Math.abs(vx) > threshold * 1.15);
       if (!fastStroke || this.time - (p.strokeAnchor?.at ?? -10) > .16) p.strokeAnchor = null;
       if (fastStroke) {
-        if (!p.strokeAnchor) p.strokeAnchor = { z:p.z, input:z, at:this.time };
+        if (!p.strokeAnchor) p.strokeAnchor = { x:p.x, inputX:x, z:p.z, input:z, at:this.time };
+        p.targetX = clamp(p.strokeAnchor.x + clamp((x-p.strokeAnchor.inputX)*.20,-.065,.065),-1.03,1.03);
+        p.dragOffsetX = x - p.targetX;
         p.targetZ = clamp(p.strokeAnchor.z + clamp((z-p.strokeAnchor.input)*.20,-.055,.025), .64, 1.95);
       } else {
         p.targetZ = clamp(z - (p.dragOffsetZ || 0), serving ? 1.50 : .64, serving ? 1.82 : 1.95);
@@ -274,7 +347,7 @@
       this.time += dt;
       const p = this.player, b = this.ball, ai = this.ai, level = LEVELS[this.difficulty];
       const oldPX = p.x, oldPZ = p.z, oldPY = p.y;
-      const blend = 1 - Math.exp(-60 * Characters.modifier(this.characters.player,'speed') * dt * controlScale);
+      const blend = 1 - Math.exp(-100 * Characters.modifier(this.characters.player,'speed') * dt * controlScale);
       p.x += (p.targetX - p.x) * blend; p.z += (p.targetZ - p.z) * blend;
       p.vx = (p.x - oldPX) / dt; p.vz = (p.z - oldPZ) / dt;
       const incoming = this.lastHitter === 'ai' && this.state === 'rally';
@@ -359,7 +432,8 @@
         }
       } else if (this.mode === 'match' && this.lastHitter === 'player' && b.vz < 0) {
         const contactZ = ai.z + .04;
-        if (prev.z >= contactZ - .065 && b.z <= contactZ + .065 && Math.abs(b.x - ai.x) < .205 && Math.abs(b.y - ai.y) < .23 && this.bounces === 1 && !ai.willMiss) this.hit('ai');
+        const defense=Characters.modifier(this.characters.ai,'defense');
+        if (prev.z >= contactZ - .065 && b.z <= contactZ + .065 && Math.abs(b.x - ai.x) < .205*defense && Math.abs(b.y - ai.y) < .23 && this.bounces === 1 && !ai.willMiss) this.hit('ai');
       }
       if (this.state !== 'rally') return;
       if ((this.netFailed && b.y < C.tableY + C.radius) || b.y < .13 || Math.abs(b.z) > 2.75 || Math.abs(b.x) > 2.45 || this.time - this.shotTime > 4) {
@@ -394,26 +468,18 @@
       b.spinX = side === 'player' ? (this.player.swingVZ > -1.25 || this.player.cutting ? 28 : -22) : 0;
       b.spinY = side === 'player' ? clamp(this.player.swingVX * 14, -70, 70) : 0; b.spinZ = 0;
       b.spinX*=Characters.modifier(this.characters[side],'spin');b.spinY*=Characters.modifier(this.characters[side],'spin');
-      const start = { ...b }, targetZ = direction * .68;
-      let vx = -b.x / .78, vz = direction * 3.8;
-      // Solve a two-bounce serve with the exact drag and friction model.
-      for (let iteration = 0; iteration < 12; iteration++) {
-        const trial = { ...start, vx, vy: -1.24, vz };
-        let elapsed = 0, count = 0;
-        while (elapsed < 1.8 && count < 2) {
-          const previous = { ...trial }; advanceBall(trial, C.step); elapsed += C.step;
-          if (trial.y <= C.tableY + C.radius && previous.y > C.tableY + C.radius && trial.vy < 0) {
-            trial.y = C.tableY + C.radius; count++; if (count === 1) reboundBall(trial);
-          }
-        }
-        vx += (0 - trial.x) / Math.max(elapsed, .4) * .80;
-        vz += (targetZ - trial.z) / Math.max(elapsed, .4) * .85;
-      }
-      b.vx = vx; b.vy = -1.24; b.vz = vz;
+      const placement = side === 'player'
+        ? playerPlacement(this.player, b, true)
+        : { x: (this.random() - .5) * (this.difficulty === 'beginner' ? .45 : 1.1), z: .48 + this.random() * .54 };
+      // A same-side wide serve cannot start with a huge outward tangent:
+      // reduce the brush near the rail while preserving the chosen placement.
+      if (b.x * placement.x > 0) b.spinY *= clamp(1 - Math.max(0, Math.abs(b.x) - .35) * 2.5, .25, 1);
+      aimServe(b, placement.x, placement.z);
+      this.lastShot = { side, x: placement.x, z: placement.z, placement: placementName(placement.x, placement.z), serve: true };
       if (this.mode === 'serve') this.practice.attempts++;
-      this.player.contactAt = this.time; this.rally = 1; this.totalHits++; this.maxRally = Math.max(this.maxRally, this.rally);
+      paddle.contactAt = this.time; this.rally = 1; this.totalHits++; this.maxRally = Math.max(this.maxRally, this.rally);
       this.player.swingUntil = 0;
-      this.resetAITarget(); this.emit('hit', { side, speed: Math.abs(b.vz), impactSpeed: Math.abs(b.vz), contact: 0, spin: spinName(b, '发球'), x: b.x, y: b.y, z: b.z });
+      this.resetAITarget(); this.emit('hit', { side, speed: Math.hypot(b.vx,b.vy,b.vz), impactSpeed: Math.abs(b.vz), contact: 0, spin: spinName(b, '发球'), placement: this.lastShot.placement, x: b.x, y: b.y, z: b.z });
     }
     resetAITarget() {
       const level = LEVELS[this.difficulty];
@@ -445,25 +511,30 @@
     }
     posture(side) {
       const paddle=side==='player'?this.player:this.ai;
-      return strokeContext(paddle,this.ball,this.lastHitter===opposite(side),{side,hand:Characters.get(this.characters[side]).hand});
+      const contactX=side==='player'?this.playerPlan?.x:this.aiPlan?.x;
+      return strokeContext(paddle,this.ball,this.lastHitter===opposite(side),{side,...this.equipment[side],contactX});
     }
     predictAIContact() {
-      const b = { ...this.ball }; let bounced = this.bounces > 0, ownServeBounce = this.serveStage === 1;
+      const b = { ...this.ball }; let bounced = this.bounces > 0, ownServeBounce = this.serveStage === 1, shortContact=null;
       for (let elapsed = 0; elapsed < 1.5; elapsed += 1 / 120) {
         const previous = { ...b }; advanceBall(b, 1 / 120);
         const contact=tableContact(previous,b);
         if(contact) {
-          if(contact.kind==='side')return null;
+          if(contact.kind==='side')return shortContact;
           if (ownServeBounce) ownServeBounce = false;
-          else if (b.z < 0) { if (bounced) return null; bounced = true; }
+          else if (b.z < 0) { if (bounced) return shortContact; bounced = true; }
           Object.assign(b,contact.center);
           if(contact.kind==='top')reboundBall(b);else reflectContact(b,contact.normal,.84,C.friction);
           b.x+=contact.normal.x*.0002;b.y+=contact.normal.y*.0002;b.z+=contact.normal.z*.0002;
         }
-        if (bounced && b.z < -.86 && b.y >= .91 && b.y < 1.48) return { x: b.x, y: b.y, z: b.z - .04 };
-        if (b.z < -2 || b.y < .6) return null;
+        const preferred=Characters.tactics(this.characters.ai).near;
+        // A short ball can bounce twice before the athlete's preferred depth.
+        // Keep a reachable earlier contact so the AI can step in to receive it.
+        if (bounced && b.z < -.56 && b.y >= .91 && b.y < 1.48) shortContact={x:b.x,y:b.y,z:b.z-.04};
+        if (bounced && b.z < preferred+.16 && b.y >= .91 && b.y < 1.48) return { x: b.x, y: b.y, z: b.z - .04 };
+        if (b.z < -2 || b.y < .6) return shortContact;
       }
-      return null;
+      return shortContact;
     }
     updateAI(dt, level) {
       const ai = this.ai, b = this.ball;
@@ -475,9 +546,9 @@
           const estimate = b.x + b.vx * t;
           const precision = level.anticipation || (this.difficulty === 'pro' ? .64 : .30);
           ai.targetX = clamp((plan ? estimate * (1 - precision) + plan.x * precision : estimate) + ai.aimError + (ai.willMiss ? (b.x >= 0 ? -.48 : .48) : 0), -1.04, 1.04);
-          ai.targetZ = plan ? clamp(plan.z, -1.72, -.96) : -1.52;
+          ai.targetZ = plan ? clamp(plan.z, -1.72, -.60) : Characters.tactics(this.characters.ai).near;
         }
-      } else { ai.targetX = this.player.x * -.2; ai.targetZ = -1.56; }
+      } else { ai.targetX = this.player.x * -.2; ai.targetZ = Characters.tactics(this.characters.ai).near; }
       ai.x += clamp(ai.targetX - ai.x, -level.speed * Characters.modifier(this.characters.ai,'speed') * dt, level.speed * Characters.modifier(this.characters.ai,'speed') * dt);
       ai.z += clamp(ai.targetZ - ai.z, -level.speed * .65 * dt, level.speed * .65 * dt);
       const desiredY = this.lastHitter === 'player' ? clamp(this.aiPlan?.y || b.y, .91, 1.50) : 1.08;
@@ -491,37 +562,41 @@
       let targetX, targetZ, speed, spin;
       const incomingSpinX = b.spinX, incomingSpinY = b.spinY, incomingSpeed = Math.hypot(b.vx, b.vy, b.vz);
       if (side === 'player') {
-        const power = clamp(-p.swingVZ, .32, 6);
-        targetX = clamp(b.x * .18 + p.swingVX * .035 * Characters.modifier(this.characters.player,'variation') + (b.x - p.x) * .72, -.68, .68);
-        targetZ = -(.64 + clamp(power / 6, 0, 1) * .46);
+        const placement = playerPlacement(p, b);
+        const power = placement.power;
+        targetX = placement.x; targetZ = placement.z;
         // A real moving stroke is required; incoming momentum contributes to a
         // block while a fast forward stroke adds energy and topspin.
         speed = clamp(2.35 + power * .53 + incomingSpeed * .10, 2.7, 6.4);
         b.spinY = clamp(p.swingVX * 25 + (b.x - p.x) * 55 - incomingSpinY * .08, -150, 150);
         const stroke = this.posture('player');
         const backspin = power < 1.3 || p.cutting || (stroke.key === 'push' && power < 3.5);
-        if (stroke.key === 'smash' && power > 3) { speed = Math.min(7.2, speed * 1.17); targetZ = -.99; }
+        if (stroke.key === 'smash' && power > 3) { speed = Math.min(7.2, speed * 1.17); targetZ = -1.18; }
         b.spinX = backspin ? 72 + (1.3 - Math.min(power, 1.3)) * 25 : -clamp(48 + power * 14, 50, 140);
         b.spinZ = 0;
         const lateral = Math.abs(b.spinY) > 24 ? (b.spinY > 0 ? '左侧旋' : '右侧旋') : '';
         spin = lateral ? lateral + (Math.abs(p.swingVZ) > .5 ? backspin ? ' · 下旋' : ' · 上旋' : '') : backspin ? '下旋 · 切削回球' : power > 3.5 ? '上旋 · 强力回球' : '上旋';
         p.contactAt = this.time; p.swingUntil = 0;
       } else {
-        const style = STYLES[this.aiStyle], elite = Boolean(level.anticipation);
-        const spread = Characters.modifier(this.characters.ai,'variation') * (this.difficulty === 'beginner' ? .27 : this.difficulty === 'standard' ? .43 : elite ? .65 : .57) * style.spread;
+        const style = STYLES[this.aiStyle], elite = Boolean(level.anticipation),identity=Characters.tactics(this.characters.ai);
+        const spread = (.88+.12*Characters.modifier(this.characters.ai,'variation')) * (this.difficulty === 'beginner' ? .27 : this.difficulty === 'standard' ? .43 : elite ? .65 : .57) * style.spread;
+        const roll = this.random(), wide = (this.player.x > 0 ? -1 : 1) * Math.min(.69,spread*(.82+.18*identity.wide));
         targetX = (this.random() - .5) * 2 * spread;
-        if (elite || this.difficulty === 'pro' || this.aiStyle === 'aggressive') {
-          const movingRight = this.player.vx > .6;
-          // Mix wide placement, body balls, and reversals when the player has
-          // already committed to running; neither elite tier is infallible.
-          const roll = this.random();
-          targetX = elite && roll < .18 ? clamp(this.player.x, -.5, .5) : elite && roll < .39 && Math.abs(this.player.vx) > .6 ? (movingRight ? -1 : 1) * spread : (this.player.x > 0 ? -spread : spread);
+        // Beginners leave room to rally. Higher tiers mix open court, body,
+        // alternating corners and reversals against an already moving player.
+        const tactical = this.difficulty !== 'beginner' && (elite || this.aiStyle === 'aggressive' || roll < .70);
+        if (tactical) {
+          if (roll >= .18 && roll < .42 && Math.abs(this.player.vx) > .6) targetX = -Math.sign(this.player.vx) * spread;
+          else if (roll < identity.body) targetX = clamp(this.player.x, -spread, spread);
+          else if (roll > .78 && this.ai.lastTargetX) targetX = -Math.sign(this.ai.lastTargetX) * spread;
+          else targetX = wide;
         }
         targetX = clamp(targetX, -.69, .69);
         if (this.random() < level.shotError * style.error / Characters.modifier(this.characters.ai,'control')) targetX = (this.random() > .5 ? 1 : -1) * (1 + this.random() * .3);
-        const short = elite && this.random() < .23 * Characters.modifier(this.characters.ai,'variation');
+        const shortChance = this.difficulty==='beginner'?0:this.aiStyle==='defensive'?Math.max(.26,identity.short):identity.short*(elite?1:.8);
+        const short = this.random() < shortChance * Characters.modifier(this.characters.ai,'variation');
         targetZ = short ? .36 + this.random() * .22 : this.aiStyle === 'defensive' ? .56 + this.random() * .22 : elite ? 1.04 + this.random() * .17 : this.aiStyle === 'aggressive' ? 1.02 + this.random() * .16 : .74 + this.random() * .28;
-        speed = level.ballSpeed * style.speed * (short ? .70 : 1);
+        speed = level.ballSpeed * style.speed * identity.pace * (short ? .70 : 1);
         b.spinX = this.aiStyle === 'defensive' || short ? -(elite ? 100 : 65) : this.aiStyle === 'aggressive' ? (elite ? 145 : 90) : elite ? 115 : this.difficulty === 'pro' ? 80 : 36;
         b.spinY = (this.random() - .5) * (elite ? 150 : 24) * Characters.modifier(this.characters.ai,'variation'); b.spinZ = 0;
         spin = spinName(b, b.spinX < 0 ? '下旋防守' : '上旋进攻');
@@ -533,19 +608,28 @@
       }
       if(side==='ai'&&this.mode==='match') { const pose=this.posture('ai'); if(pose.key==='push')b.spinX=-Math.abs(b.spinX); if(pose.key==='smash'){b.spinX=Math.abs(b.spinX);speed*=1.08;} }
       const character=this.characters[side];
-      speed*=Characters.modifier(character,'attack');
+      const competing=side==='player'||this.mode==='match';
+      speed*=competing?Characters.modifier(character,'attack'):1;
       targetX=clamp(targetX,-1.3,1.3);
-      b.spinX*=Characters.modifier(character,'spin');b.spinY*=Characters.modifier(character,'spin');
-      aimFlight(b, targetX, targetZ, speed, side === 'ai' && level.anticipation ? .95 : .64);
+      b.spinX*=competing?Characters.modifier(character,'spin'):1;b.spinY*=competing?Characters.modifier(character,'spin'):1;
+      const handed=this.equipment[side].hand==='left'?-1:1,facing=side==='player'?1:-1;
+      const signature=competing?Characters.signature(character,{used:this.signatureUsed[side],legal:this.bounces>=1&&this.lastHitter===opposite(side),contact,hits:this.pointHits[side],power:side==='player'?Math.max(0,-p.swingVZ):Math.min(6,speed),brush:side==='player'?p.swingVX:b.spinY/25,z:paddle.z*facing,backhand:paddle.x*facing*handed<-.14,targetX,previousX:this.previousPlacement[side]}):null;
+      if(signature){this.signatureUsed[side]=true;speed*=signature.speed;b.spinX*=signature.spin;b.spinY*=signature.spin;}
+      this.pointHits[side]++;this.previousPlacement[side]=targetX;
+      speed=clamp(speed,1.85,10.6);
+      aimFlight(b, targetX, targetZ, speed, side === 'player' || level.anticipation ? .96 : .64);
       // Rubber transfers a small part of the incoming spin. Good central
       // contact and elite AI compensate better; edges are harder to control.
-      const gripError = (side === 'player' ? .0012 + contact * .0028 : level.anticipation ? .00025 : .0013) / Characters.modifier(character,'control');
+      const gripError = (side === 'player' ? .0012 + contact * .0028 : level.anticipation ? .00025 : .0013) / (Characters.modifier(character,'control')*(signature?.control||1));
       b.vx += incomingSpinY * gripError;
       b.vy += incomingSpinX * gripError;
+      this.lastShot = { side, x: targetX, z: targetZ, placement: placementName(targetX, targetZ), serve: false,signature:signature?{name:signature.name,color:signature.color}:null };
+      paddle.contactAt = this.time;
+      if (side === 'ai') this.ai.lastTargetX = targetX;
       this.lastHitter = side; this.expectedSide = opposite(side); this.bounces = 0; this.serveStage = 0; this.netTouched = false; this.netFailed = false; this.shotTime = this.time;
       this.rally++; this.totalHits++; this.maxRally = Math.max(this.maxRally, this.rally);
       if (side === 'player') this.resetAITarget();
-      this.emit('hit', { side, speed: Math.hypot(b.vx, b.vy, b.vz), impactSpeed: Math.abs(b.vz - incomingVZ), contact, spin, stroke: this.posture(side).name, x: b.x, y: b.y, z: b.z });
+      this.emit('hit', { side, speed: Math.hypot(b.vx, b.vy, b.vz), impactSpeed: Math.abs(b.vz - incomingVZ), contact, spin, signature:this.lastShot.signature,placement: this.lastShot.placement, stroke: this.posture(side).name, x: b.x, y: b.y, z: b.z });
     }
     point(winner, reason) {
       if (this.state === 'point' || this.state === 'gameover' || !winner) return;
@@ -588,7 +672,7 @@
       }
       return null;
     }
-    snapshot() { return { state: this.state, time: this.time, ball: { ...this.ball }, player: { ...this.player }, ai: { ...this.ai }, stroke: this.posture('player'), aiStroke: this.posture('ai'), characters: {...this.characters}, contactReady:this.contactReady, swingRecognition:this.swingRecognition, score: { ...this.match.points }, games: { ...this.match.games }, server: this.server, rally: this.rally, bounces: this.bounces, lastHitter: this.lastHitter, difficulty: this.difficulty, aiStyle: this.aiStyle, mode: this.mode, practice: { ...this.practice }, matchOver: this.match.over, gameOver: this.match.gameOver }; }
+    snapshot() { return { state: this.state, time: this.time, ball: { ...this.ball }, player: { ...this.player }, ai: { ...this.ai }, stroke: this.posture('player'), aiStroke: this.posture('ai'), characters: {...this.characters}, equipment:{player:{...this.equipment.player},ai:{...this.equipment.ai}}, contactReady:this.contactReady, swingRecognition:this.swingRecognition, score: { ...this.match.points }, games: { ...this.match.games }, server: this.server, rally: this.rally, bounces: this.bounces, lastHitter: this.lastHitter, difficulty: this.difficulty, aiStyle: this.aiStyle, mode: this.mode, practice: { ...this.practice }, matchOver: this.match.over, gameOver: this.match.gameOver }; }
   }
   return { C, LEVELS, STYLES, Match, Simulation, clamp, advanceBall, reboundBall, strokeContext, smoothHeight, tableContact, netContact, reflectContact };
 });

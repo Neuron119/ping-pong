@@ -130,9 +130,10 @@
       const source = ctx.createBufferSource(), gain = ctx.createGain(), filter = ctx.createBiquadFilter();
       const near = clamp(((detail.z ?? 0) + 1.6) / 3.2, 0, 1);
       source.buffer = this.buffers.get(key);
-      source.playbackRate.value = point ? 1 : 1 + (variant - 1.5) * .004 + clamp(detail.contact ?? 0, 0, 1) * .022;
+      source.playbackRate.value = point ? 1 : 1 + (variant - 1.5) * .004 + clamp(detail.contact ?? 0, 0, 1) * .022 + (detail.signature?.055:0);
       gain.gain.value = point ? .16 : ({hit:.88,bounce:.72,net:.42}[type]) * (.42 + .58 * Math.sqrt(strength)) * (.70 + near * .30);
-      filter.type = 'lowpass'; filter.frequency.value = Math.min(ctx.sampleRate * .45, 6500 + near * 7500); filter.Q.value = .35;
+      const contact = clamp(detail.contact ?? 0, 0, 1);
+      filter.type = 'lowpass'; filter.frequency.value = Math.min(ctx.sampleRate * .45, (4200 + strength * 7000 + near * 2200) * (1 - contact * .16)); filter.Q.value = .35;
       const nodes = [source, filter, gain];
       source.connect(filter); filter.connect(gain);
       if (ctx.createStereoPanner) {

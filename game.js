@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const $ = id => document.getElementById(id);
-  const { C, LEVELS, STYLES, Simulation, clamp, strokeContext } = PingPhysics;
+  const { C, LEVELS, STYLES, Simulation, clamp } = PingPhysics;
   const { ROSTER, AXES, get: character } = PingCharacters;
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const storageKey = 'ping-club-v1';
@@ -16,6 +16,7 @@
   }
   if(!['easy','standard','firm'].includes(settings.swingRecognition))settings.swingRecognition='standard';
   settings.offset=clamp(Number(settings.offset)||0,0,120);
+  settings.cameraHeight=Number.isFinite(Number(settings.cameraHeight))?clamp(Number(settings.cameraHeight),0,100):PingView.DEFAULT_HEIGHT;
   if(!PingQuality.PRESETS[settings.quality])settings.quality='balanced';
   settings.ballSize = clamp(Number(settings.ballSize) || 1.2, 1, 1.8);
   for (const key of ['ballColor', 'paddleColor']) if (!/^#[0-9a-f]{6}$/i.test(settings[key])) settings[key] = key === 'ballColor' ? '#fff5df' : '#405f4b';
@@ -38,8 +39,8 @@
   audio.setEnabled(settings.sound);
   let lastTime = performance.now(), accumulator = 0;
   let netImpact=0, netImpactX=0;
-  let impact = 0, aiImpact = 0, cameraShake = 0, spinUntil = 0, letUntil = 0,signatureUntil=0;
-  let pointer = null, initialized = false, landscapeEnds = 0, lastRender = 0;
+  let cameraShake = 0, spinUntil = 0, letUntil = 0,signatureUntil=0;
+  let pointer = null, initialized = false, landscapeEnds = 0, lastRender = 0, cameraPreviewDirty=true;
   const sim = new Simulation({ onEvent: handleEvent });
 
   function equipmentOverrides() {
@@ -81,6 +82,7 @@
   let landingCache=null, landingAt=-1;
   let trailPoints = [], trailPositions = new Float32Array(18 * 3);
   let courtWidth = 1, courtHeight = 1;
+  let cameraView=null;
   const v3 = typeof THREE !== 'undefined' ? new THREE.Vector3() : null;
   const raycaster = typeof THREE !== 'undefined' ? new THREE.Raycaster() : null;
   const controlPlane = typeof THREE !== 'undefined' ? new THREE.Plane(new THREE.Vector3(0, 1, 0), -1.08) : null;
@@ -300,6 +302,9 @@
     const rect=court.getBoundingClientRect(); courtWidth=rect.width; courtHeight=rect.height;
     renderer.setSize(rect.width,rect.height,false); camera.aspect=rect.width/rect.height;
     camera.fov=camera.aspect<.8?47:42; camera.updateProjectionMatrix();
+    cameraView=PingView.fitCamera(THREE,courtWidth,courtHeight,settings.cameraHeight,settings.offset);
+    cameraPreviewDirty=true;
+    releasePointer();
     updateCamera(0,true);
     $('input-label').hidden=matchMedia('(pointer:coarse)').matches;
   }
@@ -322,9 +327,10 @@
     const point=new THREE.Vector3(x,y,z).project(camera);
     return {x:(point.x+1)/2*courtWidth,y:(1-point.y)/2*courtHeight};
   }
-  function worldPoint(clientX,clientY) {
+  function worldPoint(clientX,clientY,touch=false) {
     const r=court.getBoundingClientRect();
-    const ndc=new THREE.Vector2((clientX-r.left)/r.width*2-1,-((clientY-r.top)/r.height)*2+1);
+    const localX=touch?PingView.touchX(clientX-r.left,r.width):clientX-r.left;
+    const ndc=new THREE.Vector2(localX/r.width*2-1,-((clientY-r.top)/r.height)*2+1);
     raycaster.setFromCamera(ndc,camera); const point=new THREE.Vector3();
     return raycaster.ray.intersectPlane(controlPlane,point)?point:null;
   }
@@ -341,18 +347,18 @@
       if(sim.mode!=='match')updateScore();
       $('gesture-guide').hidden=true; $('rally-badge').hidden=false; $('rally-count').textContent=sim.rally;
       if(event.side==='player') {
-        impact=1; cameraShake=reducedMotion?0:.003;
-        if(settings.haptics&&navigator.vibrate) navigator.vibrate(clamp(Math.round(event.impactSpeed*1.6),8,20));
+        cameraShake=reducedMotion?0:.0025*clamp(event.impactSpeed/11,.16,1);
+        if(settings.haptics&&navigator.vibrate) navigator.vibrate(clamp(Math.round(5+event.impactSpeed*.9+(event.friction||0)*4),6,19));
         $('hit-feedback').textContent=`${event.placement || ''} · ${event.spin} · ${(event.speed*3.6).toFixed(0)} km/h`;
         $('spin-label').textContent=event.placement+' · '+event.spin; $('spin-label').hidden=!settings.hints; spinUntil=sim.time+.85;
-      } else { aiImpact=1; $('hit-feedback').textContent='跟住来球，等落台后挥拍'; }
+      } else { $('hit-feedback').textContent='对准来球可挡回 · 前挥加力，横擦加旋'; }
       if(event.signature){
         $('signature-label').textContent=`${event.side==='ai'?character(sim.characters.ai).name+' · ':''}${event.signature.name}`;
         $('signature-label').style.setProperty('--signature-color',event.signature.color);$('signature-label').hidden=false;signatureUntil=sim.time+.95;
         $('hit-feedback').textContent=event.signature.name+' · '+(event.placement||'');
       }
-      if(contactRing&&settings.hints) { contactRing.position.set(event.x,event.y,event.z); contactRing.material.opacity=.66; contactRing.scale.setScalar(.7+Math.min(event.impactSpeed,10)*.04); }
-      setStatus(event.side==='player'?'好球 · 准备下一拍':'来球了 · 落台后向前挥拍');
+      if(contactRing) { contactRing.position.set(event.x,event.y,event.z);contactRing.material.color.set(event.friction>.45?'#f4d99a':'#e2f5ac');contactRing.material.opacity=.20+clamp(event.impactSpeed/20,0,.48);contactRing.scale.set(.7+(event.friction||0)*.6,.7,1); }
+      setStatus(event.side==='player'?'好球 · 准备下一拍':'来球了 · 对准挡球或主动挥拍');
     } else if(event.type==='bounce') {
       sound('bounce',event);
       if(bounceRing&&settings.landing){bounceRing.position.set(event.x,C.tableY+.007,event.z);bounceRing.material.opacity=.6;bounceRing.scale.setScalar(1);}
@@ -368,14 +374,14 @@
       sound('point',event); updateScore();
       $('point-toast').hidden=false; $('point-toast').classList.toggle('loss',event.winner==='ai');
       $('point-title').textContent=event.winner==='player'?'好球，你得分！':`${character(sim.characters.ai).name}得分`;
-      $('point-detail').textContent=event.reason+(event.result.changeEnds?' · 决胜局交换场地':'');
+      $('point-detail').textContent=event.reason+(settings.hints&&event.feedback?' · '+event.feedback:'')+(event.result.changeEnds?' · 决胜局交换场地':'');
       $('serve-panel').hidden=true; $('gesture-guide').hidden=true;
       setStatus(event.reason); stats.bestRally=Math.max(stats.bestRally,sim.maxRally); save(); renderStats();
       if(event.result.changeEnds) { landscapeEnds++; $('hit-feedback').textContent='已交换场地 · 视角保持在你身后'; }
       if(event.result.gameOver) { gameEndAt=sim.time+1.55; resultShown=false; }
     } else if(event.type==='practiceResult') {
       $('point-toast').hidden=false;$('point-toast').classList.toggle('loss',!event.success);
-      $('point-title').textContent=event.success?'好球！':'再试一次';$('point-detail').textContent=event.reason;
+      $('point-title').textContent=event.success?'好球！':'再试一次';$('point-detail').textContent=event.reason+(settings.hints&&event.feedback?' · '+event.feedback:'');
       $('serve-panel').hidden=true;$('gesture-guide').hidden=true;setStatus(event.reason);updateScore();
     }
   }
@@ -487,6 +493,7 @@
     if(running&&!paused){paused=true;modalPaused=true;}
     releasePointer();
     if(!document.querySelector('dialog[open]'))dialog.showModal();
+    if(id==='settings-dialog')cameraPreviewDirty=true;
   }
   function closeAll() { document.querySelectorAll('dialog[open]').forEach(d=>d.close()); if(modalPaused){paused=false;modalPaused=false;} }
   function showResult() {
@@ -529,6 +536,7 @@
     $('sound-button').setAttribute('aria-label',settings.sound?'关闭音效':'开启音效');
     $('sound-button').title=settings.sound?'关闭音效':'开启音效';
     $('setting-offset').value=settings.offset;$('offset-value').textContent=settings.offset+' px';
+    $('setting-camera-height').value=settings.cameraHeight;$('camera-height-value').textContent=settings.cameraHeight+'%'+(settings.cameraHeight===PingView.DEFAULT_HEIGHT?' · 推荐':'');
     $('setting-quality').value=settings.quality;
     $('setting-ball-size').value=settings.ballSize;$('ball-size-value').textContent=Math.round(settings.ballSize*100)+'%';
     for(const [key,prefix] of [['ballColor','ball'],['paddleColor','paddle']]){
@@ -548,7 +556,7 @@
     if(event.clientY-rect.top<rect.height*.38)return;
     initSound();event.preventDefault();court.setPointerCapture(event.pointerId);
     const touch=event.pointerType==='touch'||event.pointerType==='pen';
-    const world=worldPoint(event.clientX,event.clientY-(touch?settings.offset:0));if(!world)return;
+    const world=worldPoint(event.clientX,event.clientY-(touch?settings.offset:0),touch);if(!world)return;
     sim.beginPlayerDrag();
     pointer={id:event.pointerId,touch,x:event.clientX,y:event.clientY,worldX:world.x,worldZ:world.z,startX:sim.player.targetX,startZ:sim.player.targetZ,lastX:event.clientX,lastY:event.clientY,lastTime:performance.now(),vx:0,vz:0};
     if(touch){sim.movePlayer(world.x,world.z,0,0);showTouch(event.clientX,event.clientY);}
@@ -557,7 +565,7 @@
   function showTouch(x,y){const r=court.getBoundingClientRect();$('touch-marker').style.left=(x-r.left)+'px';$('touch-marker').style.top=(y-r.top)+'px';$('touch-marker').hidden=!pointer?.touch;}
   court.addEventListener('pointermove',event=>{
     if(!pointer||pointer.id!==event.pointerId||paused)return;event.preventDefault();
-    const now=performance.now(),dt=Math.max(.008,(now-pointer.lastTime)/1000),world=worldPoint(event.clientX,event.clientY-(pointer.touch?settings.offset:0));if(!world)return;
+    const now=performance.now(),dt=clamp((now-pointer.lastTime)/1000,.008,.05),world=worldPoint(event.clientX,event.clientY-(pointer.touch?settings.offset:0),pointer.touch);if(!world)return;
     const sensitivity=Number(settings.sensitivity);
     const newX=pointer.touch?pointer.worldX+(world.x-pointer.worldX)*sensitivity:pointer.startX+(world.x-pointer.worldX)*sensitivity;
     const newZ=pointer.touch?pointer.worldZ+(world.z-pointer.worldZ)*sensitivity:pointer.startZ+(world.z-pointer.worldZ)*sensitivity;
@@ -603,7 +611,9 @@
   });
   for(const key of ['sound','haptics','hints','outline','adaptive','landing','trail','arms'])$('setting-'+key).addEventListener('change',event=>{settings[key]=event.target.checked;if(key==='sound')initSound();if(key==='adaptive'){quality.reset(settings.quality,settings.adaptive);applyQuality();}syncSettings();save();});
   $('setting-sensitivity').addEventListener('input',event=>{settings.sensitivity=Number(event.target.value);syncSettings();save();});
-  $('setting-offset').addEventListener('input',event=>{settings.offset=Number(event.target.value);syncSettings();save();});
+  $('setting-offset').addEventListener('input',event=>{settings.offset=Number(event.target.value);syncSettings();resize();save();});
+  $('setting-camera-height').addEventListener('input',event=>{settings.cameraHeight=Number(event.target.value);resize();syncSettings();save();});
+  $('camera-height-reset').addEventListener('click',()=>{settings.cameraHeight=PingView.DEFAULT_HEIGHT;resize();syncSettings();save();});
   $('setting-quality').addEventListener('change',event=>{settings.quality=event.target.value;quality.reset(settings.quality,settings.adaptive);applyQuality();save();});
   $('setting-ball-size').addEventListener('input',event=>{settings.ballSize=clamp(Number(event.target.value),1,1.8);syncSettings();save();});
   for(const [key,prefix] of [['ballColor','ball'],['paddleColor','paddle']]){
@@ -623,25 +633,26 @@
     try {if(document.fullscreenElement)await document.exitFullscreen();else if(court.closest('.court-card').requestFullscreen)await court.closest('.court-card').requestFullscreen();else{const expanded=court.closest('.court-card').classList.toggle('mobile-fullscreen');document.body.classList.toggle('court-fullscreen',expanded);resize();}}catch(_){setStatus('当前浏览器不支持全屏，仍可正常比赛');}
   });
   document.addEventListener('visibilitychange',()=>{if(document.hidden&&running&&!paused&&!document.querySelector('dialog[open]'))openDialog('pause-dialog');});
+  document.addEventListener('fullscreenchange',resize);
+  window.visualViewport?.addEventListener('resize',resize);
   window.addEventListener('blur',()=>{if(running&&!paused&&!document.querySelector('dialog[open]'))openDialog('pause-dialog');});
 
   let trailTick=0;
   function updateCamera(dt,snap=false) {
-    const aspect=courtWidth/courtHeight,portrait=aspect<.8;
-    const cameraDistance=portrait?1.05:1;
-    cameraTarget.set(running?0:2.95,running?2.88:3.05,running?(portrait?3.68:3.85):4.15).multiplyScalar(cameraDistance);
+    if(running&&cameraView)camera.setViewOffset(courtWidth,courtHeight,0,cameraView.viewOffsetY,courtWidth,courtHeight);else camera.clearViewOffset();
+    if(running&&cameraView)cameraTarget.copy(cameraView.position);else cameraTarget.set(2.95,3.05,4.15);
     // Start at the intended view and stop moving once the transition settles.
     if(snap||reducedMotion||camera.position.distanceToSquared(cameraTarget)<1e-8) camera.position.copy(cameraTarget);
     else camera.position.lerp(cameraTarget,1-Math.exp(-dt*4));
     if(cameraShake>.001){camera.position.x+=(Math.random()-.5)*cameraShake;camera.position.y+=(Math.random()-.5)*cameraShake;cameraShake*=Math.exp(-dt*24);}
-    camera.lookAt(0,running?.78:.57,running?-.05:0);
+    camera.lookAt(0,running?.78:.57,running?-.05:0);camera.updateMatrixWorld(true);
   }
   function render(dt,now) {
     if(!initialized)return;
     const active=running;
     if(tableGroup)tableGroup.rotation.y=landscapeEnds%2?Math.PI:0;
     updateCamera(dt);
-    const b=sim.ball,p=sim.player,ai=sim.ai;
+    const b=sim.ball;
     if(!active){
       playerPaddle.position.set(.31,1.03,1.51);playerPaddle.rotation.set(-.09,-.18,-.19);
       aiPaddle.position.set(-.22,1.04,-1.5);aiPaddle.rotation.set(.07,.2,.14);
@@ -649,19 +660,12 @@
       ballShadow.position.set(-.18,C.tableY+.007,-.1);ballShadow.visible=true;
     }else{
       const posture=sim.posture('player');
-      const motion=PingMotion.stroke(p,posture,{time:sim.time,side:'player',hand:sim.equipment.player.hand,incoming:sim.state==='rally'&&sim.lastHitter==='ai',eta:sim.playerPlan?.time});
-      playerPaddle.position.set(p.x+motion.x,p.y+motion.y,p.z+motion.z);
-      const poseBlend=1-Math.exp(-dt*20),brushing=sim.time-p.gestureAt<.18;
-      const poseX=motion.pitch,poseY=motion.yaw+(brushing?clamp(p.swingVX*.025,-.12,.12):0);
-      const poseZ=motion.roll+clamp(-p.vx*.025,-.10,.10);
-      playerPaddle.rotation.x+=(poseX-playerPaddle.rotation.x)*poseBlend;
-      playerPaddle.rotation.y+=(poseY-playerPaddle.rotation.y)*poseBlend;
-      playerPaddle.rotation.z+=(poseZ-playerPaddle.rotation.z)*poseBlend;
+      const frame=sim.paddleFrame('player');
+      playerPaddle.position.set(frame.x,frame.y,frame.z);
+      playerPaddle.rotation.set(frame.pose.pitch,frame.pose.yaw,frame.pose.roll);
       $('stroke-label').textContent=posture.name;$('stroke-label').hidden=!settings.hints;
-      const aiPose=sim.posture('ai');
-      const aiMotion=PingMotion.stroke(ai,aiPose,{time:sim.time,side:'ai',hand:sim.equipment.ai.hand,incoming:sim.state==='rally'&&sim.lastHitter==='player',eta:Math.abs((ai.z-b.z)/(b.vz||1))});
-      aiPaddle.position.set(ai.x+aiMotion.x,ai.y+aiMotion.y,ai.z+aiMotion.z);
-      for(const [axis,target] of [['x',aiMotion.pitch],['y',aiMotion.yaw],['z',aiMotion.roll]])aiPaddle.rotation[axis]+=(target-aiPaddle.rotation[axis])*poseBlend;
+      const aiFrame=sim.paddleFrame('ai');
+      aiPaddle.position.set(aiFrame.x,aiFrame.y,aiFrame.z);aiPaddle.rotation.set(aiFrame.pose.pitch,aiFrame.pose.yaw,aiFrame.pose.roll);
       ballMesh.position.set(b.x,b.y,b.z);ballMesh.visible=sim.state!=='point'&&sim.state!=='gameover';
       if(!paused&&sim.state==='rally'){
         const spinTime=dt*(sim.mode==='slow'?.65:1);
@@ -679,7 +683,6 @@
     playerArm.visible=aiArm.visible=settings.arms;
     PingVisuals.updateGrip(playerArm,playerPaddle,playerEquipment.hand,true,playerEquipment.grip);
     PingVisuals.updateGrip(aiArm,aiPaddle,aiEquipment.hand,false,aiEquipment.grip);
-    impact*=Math.exp(-dt*14);aiImpact*=Math.exp(-dt*14);
     netImpact*=Math.exp(-dt*13);if(netVisual)netVisual.position.z=reducedMotion?0:Math.sin(now*.060)*netImpact*.006*(1-Math.abs(netImpactX)*.15);
     if(contactRing.material.opacity>0){contactRing.material.opacity=Math.max(0,contactRing.material.opacity-dt*4);contactRing.scale.addScalar(dt*8);contactRing.lookAt(camera.position);}
     if(bounceRing.material.opacity>0&&!paused){bounceRing.material.opacity=Math.max(0,bounceRing.material.opacity-dt*3);bounceRing.scale.addScalar(dt*4);}
@@ -694,11 +697,22 @@
       trailLine.geometry.attributes.position.needsUpdate=true;trailLine.geometry.setDrawRange(0,trailPoints.length);trailLine.visible=true;
     }else trailLine.visible=false;
     if(active&&settings.hints&&sim.state==='rally'&&sim.lastHitter==='ai'&&sim.bounces===1&&b.z>.45&&b.vz>0&&b.y>.8){
-      $('gesture-guide').hidden=false;$('gesture-text').textContent='现在，向上挥拍！';
+      $('gesture-guide').hidden=false;$('gesture-text').textContent='对准挡回 · 前挥加力';
     }else $('gesture-guide').hidden=true;
     if(!settings.hints||sim.time>spinUntil)$('spin-label').hidden=true;
     if(sim.time>signatureUntil||sim.state!=='rally')$('signature-label').hidden=true;
     if(sim.time<letUntil)setStatus('发球擦网 · 重新发球');
+    if(cameraPreviewDirty&&$('settings-dialog').open&&cameraView){
+      const preview=$('camera-preview'),ctx=preview.getContext('2d'),previewCamera=camera.clone();
+      previewCamera.position.copy(cameraView.position);previewCamera.lookAt(cameraView.target);
+      previewCamera.setViewOffset(courtWidth,courtHeight,0,cameraView.viewOffsetY,courtWidth,courtHeight);previewCamera.updateMatrixWorld(true);
+      renderer.render(scene,previewCamera);
+      // Match the preview surface to the court so portrait screens need no bars.
+      const scale=640/Math.max(courtWidth,courtHeight);
+      const w=Math.max(1,Math.round(courtWidth*scale)),h=Math.max(1,Math.round(courtHeight*scale));
+      if(preview.width!==w||preview.height!==h){preview.width=w;preview.height=h;}
+      ctx.drawImage(renderer.domElement,0,0,w,h);cameraPreviewDirty=false;
+    }
     renderer.render(scene,camera);
   }
   function frame(now) {
@@ -717,5 +731,5 @@
   for(const side of ['player','ai'])$('setting-'+side+'-blade').innerHTML='<option value="auto">跟随选手代表装备</option>'+Object.entries(PingCharacters.BLADES).map(([id,p])=>`<option value="${id}">${p.name}</option>`).join('');
   syncSettings();updateSelection();renderStats();initScene();requestAnimationFrame(frame);
   // A read-only snapshot makes diagnostics possible without changing a live match.
-  window.PING=Object.freeze({snapshot:()=>({...sim.snapshot(),lastShot:sim.lastShot?{...sim.lastShot}:null}),project:(x,y,z)=>projectPoint(x,y,z),quality:()=>({selected:quality.selected,effective:quality.effective,adaptive:quality.adaptive}),appearance:()=>({ballSize:settings.ballSize,ballColor:settings.ballColor,paddleColor:settings.paddleColor,paddleModel:settings.paddleModel,scene:settings.scene}),version:'1.4.1'});
+  window.PING=Object.freeze({snapshot:()=>({...sim.snapshot(),lastShot:sim.lastShot?{...sim.lastShot}:null}),project:(x,y,z)=>projectPoint(x,y,z),touchProject:(x,y,z)=>{const p=projectPoint(x,y,z);return{x:PingView.touchX(p.x,courtWidth,true),y:p.y+settings.offset};},view:()=>({height:settings.cameraHeight,margin:cameraView?.margin,width:courtWidth,heightPixels:courtHeight,position:camera?.position.toArray()}),quality:()=>({selected:quality.selected,effective:quality.effective,adaptive:quality.adaptive}),appearance:()=>({ballSize:settings.ballSize,ballColor:settings.ballColor,paddleColor:settings.paddleColor,paddleModel:settings.paddleModel,scene:settings.scene}),version:'1.5.1'});
 })();

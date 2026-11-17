@@ -9,6 +9,7 @@
   'use strict';
   const clamp = (v, a, b) => Math.max(a, Math.min(b, Number.isFinite(v) ? v : a));
   const profiles = {
+    brush: { duration: .065, noise: .80, decay: .006, cutoff: 4600, modes: [[1700,.07,.0025],[3200,.035,.0018]] },
     hit: { duration: .14, noise: .24, decay: .0014, cutoff: 6200, modes: [[890,.40,.008],[1370,.25,.0055],[2250,.11,.0038],[3870,.06,.002],[9600,.045,.0009]] },
     bounce: { duration: .16, noise: .15, decay: .0011, cutoff: 4800, modes: [[510,.20,.013],[1190,.39,.009],[2040,.18,.005],[3510,.07,.0025],[9100,.035,.001]] },
     net: { duration: .13, noise: .40, decay: .006, cutoff: 2400, modes: [[185,.07,.010],[420,.05,.006]] }
@@ -66,7 +67,7 @@
   class Engine {
     constructor(options = {}) {
       this.context = options.context || null; this.enabled = true;
-      this.buffers = new Map(); this.voices = new Set(); this.sequence = { hit: 0, bounce: 0, net: 0 };
+      this.buffers = new Map(); this.voices = new Set(); this.sequence = { hit: 0, bounce: 0, net: 0, brush:0 };
     }
     unlock() {
       if (!this.enabled) return;
@@ -131,7 +132,8 @@
       const near = clamp(((detail.z ?? 0) + 1.6) / 3.2, 0, 1);
       source.buffer = this.buffers.get(key);
       source.playbackRate.value = point ? 1 : 1 + (variant - 1.5) * .004 + clamp(detail.contact ?? 0, 0, 1) * .022 + (detail.signature?.055:0);
-      gain.gain.value = point ? .16 : ({hit:.88,bounce:.72,net:.42}[type]) * (.42 + .58 * Math.sqrt(strength)) * (.70 + near * .30);
+      gain.gain.value = point ? .16 : ({hit:.88,bounce:.72,net:.42,brush:.26}[type]) * (.42 + .58 * Math.sqrt(strength)) * (.70 + near * .30);
+      if(type==='brush')gain.gain.value*=clamp(detail.friction??0,0,1);
       const contact = clamp(detail.contact ?? 0, 0, 1);
       filter.type = 'lowpass'; filter.frequency.value = Math.min(ctx.sampleRate * .45, (4200 + strength * 7000 + near * 2200) * (1 - contact * .16)); filter.Q.value = .35;
       const nodes = [source, filter, gain];
@@ -145,7 +147,9 @@
       if (this.voices.size >= 16) this.stopVoice(this.voices.values().next().value, ctx.currentTime + .004);
       this.voices.add(voice);
       source.onended = () => { nodes.forEach(node => node.disconnect()); this.voices.delete(voice); };
-      source.start(now); return true;
+      source.start(now);
+      if(type==='hit'&&detail.friction>.12)this.play('brush',{...detail,impactSpeed:detail.friction*7},now+.0015);
+      return true;
     }
   }
   return Object.freeze({ Engine, synthesize });

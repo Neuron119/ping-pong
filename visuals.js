@@ -2,7 +2,7 @@
 (function (root) {
   'use strict';
   const SCENES = Object.freeze({
-    club: { name: '室内球馆', sky: '#d6d8c9', fog: '#d9dcce', sun: '#ffe9cd', ground: '#7a8b78', ambient: '#f4f6eb', intensity: 2.65, exposure: 1.02 },
+    club: { name: '室内球馆', sky: '#b9b4a4', fog: '#b9b4a4', sun: '#ffe7ca', ground: '#86796a', ambient: '#f6efe0', intensity: 2.75, exposure: .98 },
     park: { name: '户外公园', sky: '#bcd7df', fog: '#c1d7cd', sun: '#ffedc5', ground: '#819474', ambient: '#e5f4fb', intensity: 3.7, exposure: 1.08 },
     coast: { name: '海边球场', sky: '#b5dbe8', fog: '#c0dfe8', sun: '#fff0c9', ground: '#acaa92', ambient: '#e9f8ff', intensity: 4.0, exposure: 1.05 },
     rooftop: { name: '屋顶球场', sky: '#b9b4ce', fog: '#b9b7cd', sun: '#ffca9b', ground: '#777f92', ambient: '#e5e2ff', intensity: 3.2, exposure: 1.13 }
@@ -124,15 +124,20 @@
     const profile=[[.050,0],[.053,.16],[.050,.38],[.041,.68],[.031,.88],[.024,1]].map(([r,y])=>new THREE.Vector2(r,y));
     const forearm = new THREE.Mesh(new THREE.LatheGeometry(profile,24),skin);
     forearm.name='forearm';forearm.castShadow=true;forearm.receiveShadow=true;group.add(forearm);
-    const cuff = new THREE.Mesh(new THREE.CylinderGeometry(.054,.057,1,24),mat(isPlayer?'#365c4c':'#9c5847',{roughness:.9}));
+    const jersey=mat(isPlayer?'#365c4c':'#9c5847',{roughness:.94});
+    const sleeveContour=[[0,0],[.072,0],[.079,.18],[.081,.34],[.073,.57],[.063,.82],[.055,1],[0,1]];
+    const sleeve=new THREE.Mesh(new THREE.LatheGeometry(sleeveContour.map(([r,y])=>new THREE.Vector2(r,y)),24),jersey);
+    sleeve.name='upper-sleeve';sleeve.castShadow=true;sleeve.receiveShadow=true;group.add(sleeve);
+    const cuff = new THREE.Mesh(new THREE.CylinderGeometry(.054,.057,1,24),jersey);
     cuff.name='sleeve-cuff';cuff.castShadow=true;group.add(cuff);
     const trim = new THREE.Mesh(new THREE.CylinderGeometry(.0545,.055,1,24),mat('#e7e4d0'));
     trim.name='cuff-trim';group.add(trim);
-    group.userData={hand,...grips,forearm,cuff,trim,wrist:new THREE.Vector3(),elbow:new THREE.Vector3(),axis,direction:new THREE.Vector3(),rotation:new THREE.Quaternion()};
+    group.userData={hand,...grips,forearm,sleeve,cuff,trim,jersey,kit:null,wrist:new THREE.Vector3(),elbow:new THREE.Vector3(),shoulder:new THREE.Vector3(),axis,direction:new THREE.Vector3(),rotation:new THREE.Quaternion()};
     return group;
   }
-  function updateGrip(group,paddle,handedness='right',isPlayer=true,grip='shakehand') {
+  function updateGrip(group,paddle,handedness='right',isPlayer=true,grip='shakehand',style,frame) {
     const data=group.userData,sign=handedness==='left'?-1:1,facing=isPlayer?1:-1,penhold=grip==='penhold';
+    if(style?.kit&&style.kit!==data.kit){data.kit=style.kit;data.jersey.color.set(style.kit);}
     data.shakehand.visible=!penhold;data.penhold.visible=penhold;group.userData.grip=grip;group.userData.handedness=handedness;
     data.hand.position.copy(paddle.position);data.hand.quaternion.copy(paddle.quaternion);data.hand.scale.set(sign*facing,1,facing);
     const turn=penhold?-1:1;
@@ -140,12 +145,21 @@
     data.wrist.copy((penhold?data.penhold:data.shakehand).userData.wrist);
     data.wrist.x*=turn;data.wrist.y*=turn;
     data.wrist.multiply(data.hand.scale).applyQuaternion(paddle.quaternion).add(paddle.position);
-    data.elbow.set(paddle.position.x+sign*facing*.25,Math.max(.53,paddle.position.y-.36),isPlayer?Math.max(1.68,paddle.position.z+.44):Math.min(-1.68,paddle.position.z-.44));
+    const follow=frame?.follow??0,preparation=frame?.preparation??0;
+    const side=sign*facing,arc=frame?.backhand?-.6:1;
+    data.elbow.set(paddle.position.x+side*(.23+preparation*.035+arc*follow*.13*(style?.sweep??1)),
+      Math.max(.51,paddle.position.y-.32+follow*.15*(style?.lift??1)),
+      facing*Math.max(1.66,paddle.position.z*facing+.41+preparation*.04-follow*.06));
+    data.shoulder.set(paddle.position.x*.85+side*.36,Math.max(.47,paddle.position.y-.47),
+      facing*Math.max(1.91,paddle.position.z*facing+.65));
     const length=data.direction.subVectors(data.wrist,data.elbow).length();
     data.rotation.setFromUnitVectors(data.axis,data.direction.normalize());
     data.forearm.position.copy(data.elbow);data.forearm.quaternion.copy(data.rotation);data.forearm.scale.y=length;
     data.cuff.position.copy(data.elbow).lerp(data.wrist,.07);data.cuff.quaternion.copy(data.rotation);data.cuff.scale.y=.115;
     data.trim.position.copy(data.elbow).lerp(data.wrist,.07).addScaledVector(data.direction,.06);data.trim.quaternion.copy(data.rotation);data.trim.scale.y=.011;
+    data.sleeve.position.copy(data.shoulder);
+    data.direction.subVectors(data.cuff.position,data.shoulder);data.sleeve.scale.y=data.direction.length();
+    data.sleeve.quaternion.setFromUnitVectors(data.axis,data.direction.normalize());
   }
   function disposePaddle(g) {
     const geometries = new Set(), materials = new Set();

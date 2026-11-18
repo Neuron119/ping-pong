@@ -5,7 +5,8 @@
   const smooth=t=>{t=clamp(t,0,1);return t*t*(3-2*t);};
   function stroke(p,pose,options={}) {
     const time=options.time||0,facing=options.side==='ai'?-1:1,hand=options.hand==='left'?-1:1;
-    const age=time-(p.contactAt??-10),duration=.38;
+    const style=options.style;
+    const age=time-(p.contactAt??-10),duration=style?.duration??.38;
     // Exactly zero displacement at contact. The visible blade stays at the
     // simulated impact point, then follows through and eases back to ready.
     const follow=age>=0&&age<duration?Math.sin(Math.PI*age/duration)*(1-age/duration):0;
@@ -17,14 +18,19 @@
     const brush=age>0&&age<.13?Math.sin(Math.PI*age/.13)*Math.exp(-age*16)*(p.impactFriction||0)*.025:0;
     const serveAge=time-(p.serveAt??-10),servePrep=serveAge>=0&&serveAge<.065?Math.sin(Math.PI*serveAge/.065)*.024:0;
     const backhand=pose.key==='backhand'?-1:1;
-    const push=pose.key==='push',smash=pose.key==='smash';
+    const strokeKey=follow>0?(p.impactStroke??pose.key):pose.key;
+    const followHand=strokeKey==='backhand'?-1:1;
+    const push=strokeKey==='push',smash=strokeKey==='smash';
+    const accent=p.impactSignature?1.13:1;
+    const sweep=(style?.sweep??1)*accent,drive=(style?.drive??1)*accent;
     return {
-      x:facing*hand*backhand*follow*.035*effort+Math.sign(p.swingVX||0)*brush,
-      y:follow*(push?.012:smash?-.018:.022)*effort,
-      z:facing*(-follow*.055*effort+preparation*.012+recoil+servePrep),
-      pitch:pose.pitch+facing*(preparation*.08-follow*(push?.12:.30)*effort),
-      yaw:pose.yaw+facing*hand*backhand*(follow*.34*effort-preparation*.08),
-      roll:pose.roll+facing*hand*(follow*.14*effort-preparation*.035+settle),
+      x:facing*hand*followHand*follow*.035*effort*sweep+(p.impactBrush??Math.sign(p.swingVX||0))*brush,
+      y:follow*(push?.012:smash?-.018:.022)*effort*(style?.lift??1),
+      z:facing*(-follow*.055*effort*drive+preparation*.012+recoil+servePrep),
+      pitch:pose.pitch+facing*(preparation*.08-follow*(push?.12:.30)*effort*drive),
+      yaw:pose.yaw+facing*hand*(followHand*follow*.34*effort*sweep-backhand*preparation*.08),
+      roll:pose.roll+facing*hand*(follow*.14*effort*(style?.wrist??1)-preparation*.035+settle),
+      follow:follow*effort,preparation,backhand:followHand<0,
       phase:follow>0?'follow':preparation>0?'prepare':'ready'
     };
   }

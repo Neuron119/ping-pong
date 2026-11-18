@@ -1,9 +1,9 @@
 /* Camera framing and touch reach share the same screen-space safety margin. */
 (function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.PingView=api;})(typeof globalThis!=='undefined'?globalThis:this,function(){
   'use strict';
-  const DEFAULT_HEIGHT=60;
+  const DEFAULT_HEIGHT=60, DEFAULT_DISTANCE=50;
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-  function fitCamera(THREE,width,height,value=DEFAULT_HEIGHT,offset=54) {
+  function fitCamera(THREE,width,height,value=DEFAULT_HEIGHT,offset=54,distanceSetting=DEFAULT_DISTANCE) {
     const aspect=width/height,camera=new THREE.PerspectiveCamera(aspect<.8?47:42,aspect,.05,50);
     // Extend the low end from 30° to 18° while retaining the 57° ceiling.
     // The saved 60% recommendation now looks down at 41.4° instead of 46.2°.
@@ -18,16 +18,30 @@
     const corners=[];
     for(const x of [-1.08,1.08])for(const y of [.86,1.52])for(const z of [.64,1.95])corners.push(new THREE.Vector3(x,y,z));
     for(const x of [-1.08,1.08])for(const y of [.76,1.65])for(const z of [-1.68,-.64])corners.push(new THREE.Vector3(x,y,z));
-    const fits=distance=>{
+    const place=distance=>{
       camera.position.set(0,target.y+Math.sin(angle)*distance,target.z+Math.cos(angle)*distance);
       camera.lookAt(target);camera.updateMatrixWorld(true);
-      return corners.every(p=>{const q=p.clone().project(camera),x=(q.x+1)*width/2,y=(1-q.y)*height/2;
-        return x>=margin&&x<=width-margin&&y>=top&&y<=height-Math.min(offset,120)-16;});
     };
-    let lo=3.8,hi=40;
-    for(let i=0;i<24;i++){const d=(lo+hi)/2;if(fits(d))hi=d;else lo=d;}
-    fits(hi);
-    return {position:camera.position.clone(),target,margin,viewOffsetY,fov:camera.fov,height:clamp(value,0,100)};
+    const fits=(distance,sideInset,topInset,bottomInset)=>{
+      place(distance);
+      return corners.every(p=>{const q=p.clone().project(camera),x=(q.x+1)*width/2,y=(1-q.y)*height/2;
+        return x>=sideInset&&x<=width-sideInset&&y>=topInset&&y<=height-bottomInset;});
+    };
+    const fit=(lo,sideInset,topInset,bottomInset)=>{
+      let hi=40;
+      for(let i=0;i<24;i++){const d=(lo+hi)/2;if(fits(d,sideInset,topInset,bottomInset))hi=d;else lo=d;}
+      return hi;
+    };
+    const recommended=fit(3.8,margin,top,Math.min(offset,120)+16);
+    const setting=clamp(distanceSetting,0,100), delta=(setting-DEFAULT_DISTANCE)/50;
+    // Dolly along the same sightline, not via FOV or a change of pitch.
+    // The close end uses less framing padding, never a cropped reach area.
+    const nearMargin=10;
+    const close=delta<0?Math.min(recommended,fit(3.3,nearMargin,top*.70,Math.min(offset,120)+9)):recommended;
+    const distance=delta<0?recommended+(recommended-close)*delta:recommended*(1+.42*delta);
+    place(distance);
+    return {position:camera.position.clone(),target,margin:delta<0?margin+(margin-nearMargin)*delta:margin,
+      viewOffsetY,fov:camera.fov,height:clamp(value,0,100),angle:angle*180/Math.PI,distance,distanceSetting:setting};
   }
   // A smooth extra reach only in the outer 22% keeps the center directly under
   // the finger and makes the rail reachable without an OS-edge gesture.
@@ -39,5 +53,5 @@
     for(let i=0;i<30;i++){const mid=(lo+hi)/2;if(map(mid)<t)lo=mid;else hi=mid;}
     return center+(lo+hi)/2*half;
   }
-  return {DEFAULT_HEIGHT,fitCamera,touchX};
+  return {DEFAULT_HEIGHT,DEFAULT_DISTANCE,fitCamera,touchX};
 });

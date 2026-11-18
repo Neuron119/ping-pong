@@ -17,6 +17,7 @@
   if(!['easy','standard','firm'].includes(settings.swingRecognition))settings.swingRecognition='standard';
   settings.offset=clamp(Number(settings.offset)||0,0,120);
   settings.cameraHeight=Number.isFinite(Number(settings.cameraHeight))?clamp(Number(settings.cameraHeight),0,100):PingView.DEFAULT_HEIGHT;
+  settings.cameraDistance=Number.isFinite(Number(settings.cameraDistance))?clamp(Number(settings.cameraDistance),0,100):PingView.DEFAULT_DISTANCE;
   if(!PingQuality.PRESETS[settings.quality])settings.quality='balanced';
   settings.ballSize = clamp(Number(settings.ballSize) || 1.2, 1, 1.8);
   for (const key of ['ballColor', 'paddleColor']) if (!/^#[0-9a-f]{6}$/i.test(settings[key])) settings[key] = key === 'ballColor' ? '#fff5df' : '#405f4b';
@@ -164,37 +165,60 @@
       indoorEnvironment = new THREE.Group(); indoorEnvironment.name = 'environment-club'; scene.add(indoorEnvironment);
 
       const floorTexture = texture(1024, 1024, (ctx, w, h) => {
-        ctx.fillStyle = '#cbb695'; ctx.fillRect(0, 0, w, h);
+        ctx.fillStyle = '#a88769'; ctx.fillRect(0, 0, w, h);
         let seed = 375; const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
         for (let row = 0; row < 18; row++) {
           const rowY = row * h / 18, offset = row % 3 * 95;
           for (let j = -1; j < 5; j++) {
             const x = j * 300 + offset;
-            ctx.fillStyle = `hsl(${34 + rand() * 5} ${25 + rand() * 9}% ${67 + rand() * 8}%)`; ctx.fillRect(x + 1, rowY + 1, 298, h / 18 - 1);
+            ctx.fillStyle = `hsl(${29 + rand() * 5} ${35 + rand() * 8}% ${57 + rand() * 8}%)`; ctx.fillRect(x + 1, rowY + 1, 298, h / 18 - 1);
             for (let n = 0; n < 16; n++) { ctx.strokeStyle = `rgba(103,76,45,${rand() * .075})`; ctx.beginPath(); const y = rowY + rand() * 55; ctx.moveTo(x, y); ctx.bezierCurveTo(x + 100, y - 2, x + 200, y + 3, x + 299, y); ctx.stroke(); }
           }
         }
       });
       floorTexture.wrapS = floorTexture.wrapT = THREE.RepeatWrapping; floorTexture.repeat.set(3, 3);
       const floor = new THREE.Mesh(new THREE.PlaneGeometry(22, 22), material('#fff', { map: floorTexture, roughness: .88 })); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; indoorEnvironment.add(floor);
-      const floorLine = material('#e9e9d7');
+      const floorLine = material('#dfceae');
       box(indoorEnvironment, .025, .003, 6.6, floorLine, -1.75, .003, 0); box(indoorEnvironment, .025, .003, 6.6, floorLine, 1.75, .003, 0);
-      box(indoorEnvironment, 3.525, .003, .025, floorLine, 0, .003, -3.3); box(indoorEnvironment, 3.525, .003, .025, floorLine, 0, .003, 3.3);
-      // Pale plaster, sage skirting, and a sunlit window wall create a small club.
-      box(indoorEnvironment, 12, 4.2, .15, '#dedfd1', 0, 2.1, -4.4);
-      box(indoorEnvironment, 12, .84, .17, '#a6b3a0', 0, .42, -4.3);
-      box(indoorEnvironment, 12, .035, .2, '#879f87', 0, .85, -4.28);
-      box(indoorEnvironment, .12, 4.2, 12, '#e5e4d5', -4.6, 2.1, 0);
-      box(indoorEnvironment, .14, .84, 12, '#afbaa5', -4.51, .42, 0);
+      box(indoorEnvironment, 3.475, .003, .025, floorLine, 0, .003, -3.2875); box(indoorEnvironment, 3.475, .003, .025, floorLine, 0, .003, 3.2875);
+      // The playing band stays matte and darker than the ball. Millwork
+      // and high windows add detail above it without busying the ball path.
+      const wainscot = texture(512, 128, (ctx,w,h) => {
+        ctx.fillStyle='#4c6059';ctx.fillRect(0,0,w,h);
+        for(let x=0;x<w;x+=64){ctx.fillStyle='#394d46';ctx.fillRect(x,0,2,h);ctx.fillStyle='#51675e';ctx.fillRect(x+2,0,2,h);}
+      });
+      wainscot.wrapS=THREE.RepeatWrapping;wainscot.repeat.x=2;
+      const panel=material('#fff',{map:wainscot,roughness:.95});
+      box(indoorEnvironment,12,4.2,.15,'#c5b7a2',0,2.1,-4.4);
+      box(indoorEnvironment,12,1.12,.17,panel,0,.56,-4.3);
+      box(indoorEnvironment,12,.055,.20,'#6b5947',0,1.13,-4.28);
+      box(indoorEnvironment,.12,4.2,12,'#bdad97',-4.6,2.1,0);
+      box(indoorEnvironment,.14,1.12,12,panel,-4.51,.56,0);
+      box(indoorEnvironment,.17,.055,12,'#6b5947',-4.49,1.13,0);
+      const glass=texture(128,256,(ctx,w,h)=>{
+        const light=ctx.createLinearGradient(0,0,w,h);
+        light.addColorStop(0,'#c7d3cb');light.addColorStop(.62,'#eee2c8');light.addColorStop(1,'#abb4a9');
+        ctx.fillStyle=light;ctx.fillRect(0,0,w,h);
+        ctx.fillStyle='#f5ebe043';ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(w*.25,0);ctx.lineTo(w,h);ctx.lineTo(w*.55,h);ctx.fill();
+      });
+      const windowMat=material('#fff',{map:glass,roughness:.38,emissive:'#baab94',emissiveIntensity:.23});
       for (let i = 0; i < 3; i++) {
-        box(indoorEnvironment, 1.33, 1.55, .035, '#b6c4bc', -2.9 + i * 1.67, 2.22, -4.3);
-        box(indoorEnvironment, 1.23, 1.45, .04, material('#e5ecdf', { emissive: '#c3d4be', emissiveIntensity: .3 }), -2.9 + i * 1.67, 2.22, -4.27);
-        box(indoorEnvironment, .035, 1.5, .05, '#9daea0', -2.9 + i * 1.67, 2.22, -4.23);
-        box(indoorEnvironment, 1.25, .035, .05, '#9daea0', -2.9 + i * 1.67, 2.22, -4.23);
-        box(indoorEnvironment, 1.45, .045, .22, '#b9bfab', -2.9 + i * 1.67, 1.43, -4.17);
+        const x=-2.9+i*1.67;
+        box(indoorEnvironment,1.33,1.42,.045,'#655b4b',x,2.30,-4.30);
+        box(indoorEnvironment,1.23,1.31,.04,windowMat,x,2.30,-4.272);
+        box(indoorEnvironment,.033,1.34,.048,'#716e59',x,2.30,-4.237);
+        box(indoorEnvironment,1.25,.034,.046,'#716e59',x,2.48,-4.237);
+        box(indoorEnvironment,1.43,.048,.19,'#a48970',x,1.57,-4.19);
       }
-      textPlane(indoorEnvironment, 'PING.  CLUB', 2.0, .50, 2.65, 2.18, -4.30, '#6e826a', null, 76);
-      textPlane(indoorEnvironment, 'A LITTLE PLAY, EVERY DAY.', 1.8, .28, 2.65, 1.85, -4.30, '#8f9e82', null, 42);
+      box(indoorEnvironment,1.96,.63,.045,'#4b5042',2.43,2.05,-4.285);
+      textPlane(indoorEnvironment,'PING.  CLUB  /  01',1.82,.38,2.43,2.14,-4.259,'#e9d3aa',null,102);
+      textPlane(indoorEnvironment,'THE PRACTICE COURT',1.68,.20,2.43,1.91,-4.259,'#cfbf9f',null,68);
+      // A wide cloth divider sits well beyond the AI's reach envelope.
+      const barrier=box(indoorEnvironment,3.48,.43,.035,'#374e4a',0,.304,-3.37,{roughness:.98});
+      barrier.castShadow=false;
+      box(indoorEnvironment,3.52,.02,.044,'#68746b',0,.523,-3.37);
+      for(const x of [-1.73,1.73])box(indoorEnvironment,.027,.53,.047,'#464e46',x,.265,-3.37);
+      textPlane(indoorEnvironment,'PING.   /   COURT  01',1.92,.24,0,.32,-3.350,'#aeb8aa',null,92);
       const bench = new THREE.Group(); indoorEnvironment.add(bench);
       box(bench, 1.6, .07, .42, '#a58b67', 2.65, .43, -3.1);
       box(bench, .07, .43, .33, '#63715e', 2.03, .215, -3.1); box(bench, .07, .43, .33, '#63715e', 3.27, .215, -3.1);
@@ -250,7 +274,7 @@
       }
       box(tableGroup, .045, .06, 1.7, '#55685c', 0, .36, 0);
       const netTexture = texture(256, 128, ctx => {
-        ctx.clearRect(0, 0, 256, 128); ctx.strokeStyle = '#324846'; ctx.lineWidth = 1.2;
+        ctx.clearRect(0, 0, 256, 128); ctx.strokeStyle = '#233b3d'; ctx.lineWidth = 1.1;
         for (let x = 0; x < 256; x += 7) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,128); ctx.stroke(); }
         for (let y = 0; y < 128; y += 8) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(256,y); ctx.stroke(); }
       });
@@ -258,7 +282,7 @@
       const net = new THREE.Mesh(new THREE.PlaneGeometry(1.83, C.netHeight), new THREE.MeshStandardMaterial({ map: netTexture, transparent: true, side: THREE.DoubleSide, roughness: .9, alphaTest: .05 }));
       netVisual=new THREE.Group();tableGroup.add(netVisual);
       net.position.set(0, C.tableY + C.netHeight / 2, 0); net.castShadow=false; netVisual.add(net);
-      box(netVisual,1.83,.014,.009,'#e7e4d2',0,C.tableY+C.netHeight,0);
+      box(netVisual,1.83,.011,.009,'#ede5cf',0,C.tableY+C.netHeight,0);
       box(netVisual,1.83,.004,.005,'#75857d',0,C.tableY+.005,0);
       for(const x of [-.915,.915]) {
         const sign=Math.sign(x);cylinder(tableGroup,.012,.22,'#374a44',x,C.tableY+.075,0,.012,20);
@@ -303,11 +327,15 @@
     courtWidth=rect.width; courtHeight=rect.height;
     renderer.setSize(rect.width,rect.height,false); camera.aspect=rect.width/rect.height;
     camera.fov=camera.aspect<.8?47:42; camera.updateProjectionMatrix();
-    cameraView=PingView.fitCamera(THREE,courtWidth,courtHeight,settings.cameraHeight,settings.offset);
-    cameraPreviewDirty=true;
     if(geometryChanged)releasePointer();
-    updateCamera(0,true);
+    refitCamera();
     $('input-label').hidden=matchMedia('(pointer:coarse)').matches;
+  }
+  function refitCamera() {
+    if(!renderer||!courtWidth||!courtHeight)return;
+    cameraView=PingView.fitCamera(THREE,courtWidth,courtHeight,settings.cameraHeight,settings.offset,settings.cameraDistance);
+    cameraPreviewDirty=true;
+    updateCamera(0,true);
   }
   function applyQuality() {
     if(!renderer||!sun)return;
@@ -356,7 +384,7 @@
       if(event.signature){
         $('signature-label').textContent=`${event.side==='ai'?character(sim.characters.ai).name+' · ':''}${event.signature.name}`;
         $('signature-label').style.setProperty('--signature-color',event.signature.color);$('signature-label').hidden=false;signatureUntil=sim.time+.95;
-        $('hit-feedback').textContent=event.signature.name+' · '+(event.placement||'');
+        $('hit-feedback').textContent=event.signature.shape+' · '+(event.placement||'');
       }
       if(contactRing) { contactRing.position.set(event.x,event.y,event.z);contactRing.material.color.set(event.friction>.45?'#f4d99a':'#e2f5ac');contactRing.material.opacity=.20+clamp(event.impactSpeed/20,0,.48);contactRing.scale.set(.7+(event.friction||0)*.6,.7,1); }
       setStatus(event.side==='player'?'好球 · 准备下一拍':'来球了 · 对准挡球或主动挥拍');
@@ -436,8 +464,8 @@
   function renderCharacters() {
     for(const side of ['player','ai']) {
       $(side+'-character').value=selectedCharacters[side];const p=character(selectedCharacters[side]);
-      const identity=PingCharacters.profile(p.id);
-      $(side+'-character-detail').innerHTML=`<div class="character-identity">${portrait(p,'character-portrait')}<div><b>${p.name}</b><small>${p.region} · ${p.hand==='left'?'左手':'右手'}${p.grip}</small></div></div>${radar(p)}<p class="character-bio">${identity.strength}<br><span class="character-weakness">短板 · ${identity.weakness}</span></p><details class="character-signature"><summary>${identity.signature}</summary><p>${identity.trigger}。需拍心准确接球，每分最多一次；比赛中释放后，接下来 2 分冷却，第 3 分恢复资格。双方独立计算。</p></details><small class="rating-note">鲜明风格 · 游戏设定，非现实评分</small>`;
+      const identity=PingCharacters.profile(p.id),style=PingCharacters.style(p.id),shape=PingCharacters.signatureShot(p.id).shape;
+      $(side+'-character-detail').innerHTML=`<div class="character-identity">${portrait(p,'character-portrait')}<div><b>${p.name}</b><small>${p.region} · ${p.hand==='left'?'左手':'右手'}${p.grip}</small></div></div>${radar(p)}<p class="character-bio"><b>${style.label}</b><br>${side==='ai'?style.ai:style.play}<br><span class="character-weakness">短板 · ${identity.weakness}</span></p><details class="character-signature"><summary>${identity.signature}</summary><p><b>效果 · ${shape}</b><br>${identity.trigger}。每分最多一次；比赛中释放后，接下来 2 分冷却，第 3 分恢复资格。双方独立计算。</p></details><small class="rating-note">六维总预算相同 · 游戏设定</small>`;
     }
   }
   for(const side of ['player','ai']) {
@@ -454,7 +482,7 @@
   function updateSelection() {
     document.querySelectorAll('input[name="difficulty"]').forEach(input=>{input.checked=input.value===difficulty;input.closest('label').classList.toggle('selected',input.checked);});
     document.querySelectorAll('[data-format]').forEach(b=>{const selected=Number(b.dataset.format)===bestOf;b.classList.toggle('selected',selected);b.setAttribute('aria-pressed',String(selected));});
-    const detail={beginner:'更慢的来球，更多的反应时间。<br>电脑偶尔也会失误，放心挥拍。',standard:'节奏稍快，落点也更灵活。<br>适合已经找到挥拍手感的你。',advanced:'更敏捷的接球，更少的失误。<br>用落点和旋转创造机会。',pro:'快速反应，主动调动你的站位。<br>瞄准空当，把握每一拍。',master:'预判旋转落台，长短结合调动。<br>更快回球，仍留有突破机会。',legend:'更早预判、更强旋转与变线。<br>攻空当、追身位，挑战你的极限。'};
+    const detail={beginner:'更慢的来球，更多的反应时间。<br>电脑偶尔也会失误，放心挥拍。',standard:'节奏稍快，落点也更灵活。<br>适合已经找到挥拍手感的你。',advanced:'更敏捷的接球，更少的失误。<br>用落点和旋转创造机会。',pro:'快速反应，主动调动你的站位。<br>瞄准空当，把握每一拍。',master:'预判旋转落台，长短结合调动。<br>更快回球，仍留有突破机会。',legend:'更早预判、更强旋转与变线。<br>接发球会主动上步，不再一味退守。',champion:'抢接短球，回球更稳，仍有少量失误。<br>用长短和角度打出空当。',apex:'最高难度：无随机漏接或出界，险球优先稳回。<br>仍须合法落台、实际碰拍；够不到的球不会强接。'};
     $('difficulty-detail').innerHTML=detail[difficulty];
     const selectedMode=running?sim.mode:mode,selectedStyle=running?sim.aiStyle:aiStyle==='character'?character(selectedCharacters.ai).tactic:aiStyle;
     $('opponent-tag').innerHTML=`<span class="live-dot"></span> ${selectedMode==='match'?`AI · ${LEVELS[running?matchDifficulty:difficulty].name} · ${STYLES[selectedStyle].name}`:'练习模式 · 不计比赛分数'}`;
@@ -538,6 +566,8 @@
     $('sound-button').title=settings.sound?'关闭音效':'开启音效';
     $('setting-offset').value=settings.offset;$('offset-value').textContent=settings.offset+' px';
     $('setting-camera-height').value=settings.cameraHeight;$('camera-height-value').textContent=settings.cameraHeight+'%'+(settings.cameraHeight===PingView.DEFAULT_HEIGHT?' · 推荐':'');
+    $('setting-camera-distance').value=settings.cameraDistance;
+    $('camera-distance-value').textContent=settings.cameraDistance===PingView.DEFAULT_DISTANCE?'50% · 推荐':settings.cameraDistance===0?'最近':settings.cameraDistance===100?'最远':`${settings.cameraDistance}% · ${settings.cameraDistance<PingView.DEFAULT_DISTANCE?'较近':'较远'}`;
     $('setting-quality').value=settings.quality;
     $('setting-ball-size').value=settings.ballSize;$('ball-size-value').textContent=Math.round(settings.ballSize*100)+'%';
     for(const [key,prefix] of [['ballColor','ball'],['paddleColor','paddle']]){
@@ -612,9 +642,11 @@
   });
   for(const key of ['sound','haptics','hints','outline','adaptive','landing','trail','arms'])$('setting-'+key).addEventListener('change',event=>{settings[key]=event.target.checked;if(key==='sound')initSound();if(key==='adaptive'){quality.reset(settings.quality,settings.adaptive);applyQuality();}syncSettings();save();});
   $('setting-sensitivity').addEventListener('input',event=>{settings.sensitivity=Number(event.target.value);syncSettings();save();});
-  $('setting-offset').addEventListener('input',event=>{settings.offset=Number(event.target.value);syncSettings();resize();save();});
-  $('setting-camera-height').addEventListener('input',event=>{settings.cameraHeight=Number(event.target.value);resize();syncSettings();save();});
-  $('camera-height-reset').addEventListener('click',()=>{settings.cameraHeight=PingView.DEFAULT_HEIGHT;resize();syncSettings();save();});
+  $('setting-offset').addEventListener('input',event=>{settings.offset=Number(event.target.value);syncSettings();refitCamera();save();});
+  for(const [suffix,key] of [['height','cameraHeight'],['distance','cameraDistance']])$('setting-camera-'+suffix).addEventListener('input',event=>{
+    settings[key]=Number(event.target.value);refitCamera();syncSettings();save();
+  });
+  $('camera-height-reset').addEventListener('click',()=>{settings.cameraHeight=PingView.DEFAULT_HEIGHT;settings.cameraDistance=PingView.DEFAULT_DISTANCE;refitCamera();syncSettings();save();});
   $('setting-quality').addEventListener('change',event=>{settings.quality=event.target.value;quality.reset(settings.quality,settings.adaptive);applyQuality();save();});
   $('setting-ball-size').addEventListener('input',event=>{settings.ballSize=clamp(Number(event.target.value),1,1.8);syncSettings();save();});
   for(const [key,prefix] of [['ballColor','ball'],['paddleColor','paddle']]){
@@ -654,6 +686,7 @@
     if(tableGroup)tableGroup.rotation.y=landscapeEnds%2?Math.PI:0;
     updateCamera(dt);
     const b=sim.ball;
+    let playerFrame,aiFrame;
     if(!active){
       playerPaddle.position.set(.31,1.03,1.51);playerPaddle.rotation.set(-.09,-.18,-.19);
       aiPaddle.position.set(-.22,1.04,-1.5);aiPaddle.rotation.set(.07,.2,.14);
@@ -661,11 +694,11 @@
       ballShadow.position.set(-.18,C.tableY+.007,-.1);ballShadow.visible=true;
     }else{
       const posture=sim.posture('player');
-      const frame=sim.paddleFrame('player');
-      playerPaddle.position.set(frame.x,frame.y,frame.z);
-      playerPaddle.rotation.set(frame.pose.pitch,frame.pose.yaw,frame.pose.roll);
+      playerFrame=sim.paddleFrame('player');
+      playerPaddle.position.set(playerFrame.x,playerFrame.y,playerFrame.z);
+      playerPaddle.rotation.set(playerFrame.pose.pitch,playerFrame.pose.yaw,playerFrame.pose.roll);
       $('stroke-label').textContent=posture.name;$('stroke-label').hidden=!settings.hints;
-      const aiFrame=sim.paddleFrame('ai');
+      aiFrame=sim.paddleFrame('ai');
       aiPaddle.position.set(aiFrame.x,aiFrame.y,aiFrame.z);aiPaddle.rotation.set(aiFrame.pose.pitch,aiFrame.pose.yaw,aiFrame.pose.roll);
       ballMesh.position.set(b.x,b.y,b.z);ballMesh.visible=sim.state!=='point'&&sim.state!=='gameover';
       if(!paused&&sim.state==='rally'){
@@ -682,8 +715,11 @@
     }
     const playerEquipment=currentEquipment('player'),aiEquipment=currentEquipment('ai');
     playerArm.visible=aiArm.visible=settings.arms;
-    PingVisuals.updateGrip(playerArm,playerPaddle,playerEquipment.hand,true,playerEquipment.grip);
-    PingVisuals.updateGrip(aiArm,aiPaddle,aiEquipment.hand,false,aiEquipment.grip);
+    if(settings.arms){
+      const ids=active?sim.characters:selectedCharacters;
+      PingVisuals.updateGrip(playerArm,playerPaddle,playerEquipment.hand,true,playerEquipment.grip,PingCharacters.style(ids.player).motion,reducedMotion?null:playerFrame);
+      PingVisuals.updateGrip(aiArm,aiPaddle,aiEquipment.hand,false,aiEquipment.grip,PingCharacters.style(ids.ai).motion,reducedMotion?null:aiFrame);
+    }
     netImpact*=Math.exp(-dt*13);if(netVisual)netVisual.position.z=reducedMotion?0:Math.sin(now*.060)*netImpact*.006*(1-Math.abs(netImpactX)*.15);
     if(contactRing.material.opacity>0){contactRing.material.opacity=Math.max(0,contactRing.material.opacity-dt*4);contactRing.scale.addScalar(dt*8);contactRing.lookAt(camera.position);}
     if(bounceRing.material.opacity>0&&!paused){bounceRing.material.opacity=Math.max(0,bounceRing.material.opacity-dt*3);bounceRing.scale.addScalar(dt*4);}
@@ -732,5 +768,5 @@
   for(const side of ['player','ai'])$('setting-'+side+'-blade').innerHTML='<option value="auto">跟随选手代表装备</option>'+Object.entries(PingCharacters.BLADES).map(([id,p])=>`<option value="${id}">${p.name}</option>`).join('');
   syncSettings();updateSelection();renderStats();initScene();requestAnimationFrame(frame);
   // A read-only snapshot makes diagnostics possible without changing a live match.
-  window.PING=Object.freeze({snapshot:()=>({...sim.snapshot(),lastShot:sim.lastShot?{...sim.lastShot}:null}),project:(x,y,z)=>projectPoint(x,y,z),touchProject:(x,y,z)=>{const p=projectPoint(x,y,z);return{x:PingView.touchX(p.x,courtWidth,true),y:p.y+settings.offset};},view:()=>({height:settings.cameraHeight,margin:cameraView?.margin,width:courtWidth,heightPixels:courtHeight,position:camera?.position.toArray()}),quality:()=>({selected:quality.selected,effective:quality.effective,adaptive:quality.adaptive}),appearance:()=>({ballSize:settings.ballSize,ballColor:settings.ballColor,paddleColor:settings.paddleColor,paddleModel:settings.paddleModel,scene:settings.scene}),version:'1.5.2'});
+  window.PING=Object.freeze({snapshot:()=>({...sim.snapshot(),lastShot:sim.lastShot?{...sim.lastShot}:null}),project:(x,y,z)=>projectPoint(x,y,z),touchProject:(x,y,z)=>{const p=projectPoint(x,y,z);return{x:PingView.touchX(p.x,courtWidth,true),y:p.y+settings.offset};},view:()=>({height:settings.cameraHeight,distanceSetting:settings.cameraDistance,distance:cameraView?.distance,angle:cameraView?.angle,margin:cameraView?.margin,width:courtWidth,heightPixels:courtHeight,position:camera?.position.toArray()}),quality:()=>({selected:quality.selected,effective:quality.effective,adaptive:quality.adaptive}),appearance:()=>({ballSize:settings.ballSize,ballColor:settings.ballColor,paddleColor:settings.paddleColor,paddleModel:settings.paddleModel,scene:settings.scene}),version:'1.7.0'});
 })();

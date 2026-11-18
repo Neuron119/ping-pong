@@ -299,12 +299,13 @@
   }
   function resize() {
     if (!renderer) return;
-    const rect=court.getBoundingClientRect(); courtWidth=rect.width; courtHeight=rect.height;
+    const rect=court.getBoundingClientRect(),geometryChanged=rect.width!==courtWidth||rect.height!==courtHeight;
+    courtWidth=rect.width; courtHeight=rect.height;
     renderer.setSize(rect.width,rect.height,false); camera.aspect=rect.width/rect.height;
     camera.fov=camera.aspect<.8?47:42; camera.updateProjectionMatrix();
     cameraView=PingView.fitCamera(THREE,courtWidth,courtHeight,settings.cameraHeight,settings.offset);
     cameraPreviewDirty=true;
-    releasePointer();
+    if(geometryChanged)releasePointer();
     updateCamera(0,true);
     $('input-label').hidden=matchMedia('(pointer:coarse)').matches;
   }
@@ -731,5 +732,5 @@
   for(const side of ['player','ai'])$('setting-'+side+'-blade').innerHTML='<option value="auto">跟随选手代表装备</option>'+Object.entries(PingCharacters.BLADES).map(([id,p])=>`<option value="${id}">${p.name}</option>`).join('');
   syncSettings();updateSelection();renderStats();initScene();requestAnimationFrame(frame);
   // A read-only snapshot makes diagnostics possible without changing a live match.
-  window.PING=Object.freeze({snapshot:()=>({...sim.snapshot(),lastShot:sim.lastShot?{...sim.lastShot}:null}),project:(x,y,z)=>projectPoint(x,y,z),touchProject:(x,y,z)=>{const p=projectPoint(x,y,z);return{x:PingView.touchX(p.x,courtWidth,true),y:p.y+settings.offset};},view:()=>({height:settings.cameraHeight,margin:cameraView?.margin,width:courtWidth,heightPixels:courtHeight,position:camera?.position.toArray()}),quality:()=>({selected:quality.selected,effective:quality.effective,adaptive:quality.adaptive}),appearance:()=>({ballSize:settings.ballSize,ballColor:settings.ballColor,paddleColor:settings.paddleColor,paddleModel:settings.paddleModel,scene:settings.scene}),version:'1.5.1'});
+  window.PING=Object.freeze({snapshot:()=>({...sim.snapshot(),lastShot:sim.lastShot?{...sim.lastShot}:null}),project:(x,y,z)=>projectPoint(x,y,z),touchProject:(x,y,z)=>{const p=projectPoint(x,y,z);return{x:PingView.touchX(p.x,courtWidth,true),y:p.y+settings.offset};},view:()=>({height:settings.cameraHeight,margin:cameraView?.margin,width:courtWidth,heightPixels:courtHeight,position:camera?.position.toArray()}),quality:()=>({selected:quality.selected,effective:quality.effective,adaptive:quality.adaptive}),appearance:()=>({ballSize:settings.ballSize,ballColor:settings.ballColor,paddleColor:settings.paddleColor,paddleModel:settings.paddleModel,scene:settings.scene}),version:'1.5.2'});
 })();

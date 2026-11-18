@@ -8,18 +8,21 @@
     // Extend the low end from 30° to 18° while retaining the 57° ceiling.
     // The saved 60% recommendation now looks down at 41.4° instead of 46.2°.
     const angle=(18+clamp(value,0,100)*.39)*Math.PI/180,target=new THREE.Vector3(0,.78,-.05);
-    const margin=Math.min(32,Math.max(24,width*.065)),top=Math.min(96,height*.19);
-    const viewOffsetY=(Math.min(offset,120)+24-top)/2;
+    const margin=Math.min(24,Math.max(20,width*.05)),top=Math.min(88,height*.15);
+    const viewOffsetY=(Math.min(offset,120)+16-top)/2;
     camera.setViewOffset(width,height,0,viewOffsetY,width,height);
-    // Include the blade edge, not just the tabletop: low, late and wide saves
-    // must remain visible and leave room for the finger below the paddle.
+    // Fit the actual player and opponent ranges independently. The former
+    // full-court box reserved the player's widest reach behind the opponent
+    // as well, pushing the table unnecessarily far away. Keep every playable
+    // paddle centre reachable; the blade may approach the rim on a wide save.
     const corners=[];
-    for(const x of [-1.23,1.23])for(const y of [.76,1.68])for(const z of [-1.48,2.12])corners.push(new THREE.Vector3(x,y,z));
+    for(const x of [-1.08,1.08])for(const y of [.86,1.52])for(const z of [.64,1.95])corners.push(new THREE.Vector3(x,y,z));
+    for(const x of [-1.08,1.08])for(const y of [.76,1.65])for(const z of [-1.68,-.64])corners.push(new THREE.Vector3(x,y,z));
     const fits=distance=>{
       camera.position.set(0,target.y+Math.sin(angle)*distance,target.z+Math.cos(angle)*distance);
       camera.lookAt(target);camera.updateMatrixWorld(true);
       return corners.every(p=>{const q=p.clone().project(camera),x=(q.x+1)*width/2,y=(1-q.y)*height/2;
-        return x>=margin&&x<=width-margin&&y>=top&&y<=height-Math.min(offset,120)-24;});
+        return x>=margin&&x<=width-margin&&y>=top&&y<=height-Math.min(offset,120)-16;});
     };
     let lo=3.8,hi=40;
     for(let i=0;i<24;i++){const d=(lo+hi)/2;if(fits(d))hi=d;else lo=d;}

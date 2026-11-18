@@ -178,15 +178,43 @@
       normal:{x:d*facing,y:-b*c*facing,z:a*c*facing},pose:{pitch,yaw,roll}};
   }
   function paddleContact(a,b,oldFrame,frame,padding=0) {
-    const distance=(p,f)=>(p.x-f.x)*f.normal.x+(p.y-f.y)*f.normal.y+(p.z-f.z)*f.normal.z;
-    const start=distance(a,oldFrame),end=distance(b,frame),radius=C.radius+.016;
-    if(start<0||end>=start||end>radius)return null;
-    const t=clamp((start-radius)/(start-end),0,1);
+    const local=(p,f,axis)=>(p.x-f.x)*f[axis].x+(p.y-f.y)*f[axis].y+(p.z-f.z)*f[axis].z;
+    const start=local(a,oldFrame,'normal'),end=local(b,frame,'normal'),radius=C.radius+.016+padding*.6;
+    // Sweep the whole relative path through a thin blade volume. A sideways
+    // rescue can enter the edge after the ball has reached the face plane.
+    // Reject balls already behind the blade, so late gestures cannot recall it.
+    if(start < -radius)return null;
+    let enter=0,leave=1;
+    const normalTravel=end-start;
+    if(Math.abs(normalTravel)<1e-9) {if(Math.abs(start)>radius)return null;}
+    else {
+      const first=(-radius-start)/normalTravel,last=(radius-start)/normalTravel;
+      enter=Math.max(0,Math.min(first,last));leave=Math.min(1,Math.max(first,last));
+      if(enter>leave)return null;
+    }
+    const width=.153+C.radius+padding,height=.169+C.radius+padding;
+    const u0=local(a,oldFrame,'u'),v0=local(a,oldFrame,'v');
+    const du=local(b,frame,'u')-u0,dv=local(b,frame,'v')-v0;
+    const x=(u0+du*enter)/width,y=(v0+dv*enter)/height,dx=du/width,dy=dv/height;
+    let t=enter;
+    if(x*x+y*y>1) {
+      const aa=dx*dx+dy*dy,bb=2*(x*dx+y*dy),cc=x*x+y*y-1,disc=bb*bb-4*aa*cc;
+      if(aa<1e-12||disc<0)return null;
+      t+=(-bb-Math.sqrt(disc))/(2*aa);
+      if(t<enter-1e-9||t>leave+1e-9)return null;
+      t=clamp(t,enter,leave);
+    }
     const center={x:mix(a.x,b.x,t),y:mix(a.y,b.y,t),z:mix(a.z,b.z,t)};
-    const dx=center.x-mix(oldFrame.x,frame.x,t),dy=center.y-mix(oldFrame.y,frame.y,t),dz=center.z-mix(oldFrame.z,frame.z,t);
-    const u=dx*frame.u.x+dy*frame.u.y+dz*frame.u.z,v=dx*frame.v.x+dy*frame.v.y+dz*frame.v.z;
-    const radial=Math.hypot(u/(.153+C.radius+padding),v/(.169+C.radius+padding));
-    return radial<=1?{t,center,u,v,quality:clamp(radial,0,1),frame}:null;
+    const u=u0+du*t,v=v0+dv*t,impact={...frame};
+    for(const key of ['x','y','z'])impact[key]=mix(oldFrame[key],frame[key],t);
+    for(const axis of ['u','v','normal']) {
+      const vector={};for(const key of ['x','y','z'])vector[key]=mix(oldFrame[axis][key],frame[axis][key],t);
+      const length=Math.hypot(vector.x,vector.y,vector.z)||1;
+      for(const key of ['x','y','z'])vector[key]/=length;
+      impact[axis]=vector;
+    }
+    impact.pose={};for(const key of ['pitch','yaw','roll'])impact.pose[key]=mix(oldFrame.pose?.[key]||0,frame.pose?.[key]||0,t);
+    return {t,center,u,v,quality:clamp(Math.hypot(u/width,v/height),0,1),frame:impact};
   }
   function limitShot(b) {
     const spin=Math.hypot(b.spinX,b.spinY,b.spinZ),speed=Math.hypot(b.vx,b.vy,b.vz);
@@ -366,43 +394,25 @@
     }
     endPlayerDrag() {
       this.player.strokeAnchor = null;
-      this.player.serveFollow=false;
       this.player.dragOffsetX = 0; this.player.dragOffsetZ = 0;
     }
     setEquipment(overrides={}) {
       for(const side of ['player','ai'])this.equipment[side]=Characters.equipment(this.characters[side],overrides[side]);
     }
     movePlayer(x, z, vx, vz) {
-      const p = this.player, b = this.ball;
-      const serving = this.state === 'ready' && this.server === 'player'
-        || this.state==='rally'&&this.lastShot?.serve&&this.lastHitter==='player'&&p.serveFollow&&vz<-.32;
+      const p = this.player;
+      const serving = this.state === 'ready' && this.server === 'player';
+      // Position always follows the drag, including fast swipes at contact.
+      // Shot effort is sampled separately and never anchors either travel axis.
       p.targetX = clamp(x - (p.dragOffsetX || 0), serving ? -.64 : -1.03, serving ? .64 : 1.03);
       p.dragOffsetX = x - p.targetX;
-      const threshold = {easy:1.05,standard:1.65,firm:2.4}[this.swingRecognition];
-      // Only protect an aligned, bounced ball immediately before contact.
-      // A quick reposition across the table must still follow the finger.
-      const eta = b.vz > 0 ? (p.z - .032 - b.z) / b.vz : Infinity;
-      const nearContact = this.state === 'rally' && this.lastHitter === 'ai' && this.bounces === 1
-        && eta >= -.045 && eta < .27 && Math.abs(b.x + b.vx * Math.max(0, eta) - p.x) < .29;
-      if(this.time-(p.strokeAnchor?.at??-10)>.26)p.strokeAnchor=null;
-      const forwardTravel = p.targetZ - z;
-      const fastStroke = nearContact && (vz < -threshold || Math.abs(vx) > threshold * 1.15
-        || vz < -threshold*.45 && forwardTravel > .075 && forwardTravel < .19
-        || p.strokeAnchor && (vz < -threshold*.45 || Math.abs(vx) > threshold*.55));
-      if (!fastStroke || this.time - (p.strokeAnchor?.at ?? -10) > .26) p.strokeAnchor = null;
-      if (fastStroke) {
-        if (!p.strokeAnchor) p.strokeAnchor = { x:p.x, inputX:x, z:p.z, input:z, at:this.time };
-        p.targetX = clamp(p.strokeAnchor.x + clamp((x-p.strokeAnchor.inputX)*.20,-.065,.065),-1.03,1.03);
-        p.dragOffsetX = x - p.targetX;
-        p.targetZ = clamp(p.strokeAnchor.z + clamp((z-p.strokeAnchor.input)*.20,-.055,.025), .64, 1.95);
-      } else {
-        p.targetZ = clamp(z - (p.dragOffsetZ || 0), serving ? 1.50 : .64, serving ? 1.82 : 1.95);
-      }
-      // Rebase suppressed travel and overscroll, so continuing or reversing a
-      // drag never catches up abruptly or traverses an invisible dead zone.
+      p.targetZ = clamp(z - (p.dragOffsetZ || 0), serving ? 1.50 : .64, serving ? 1.82 : 1.95);
+      // Rebase overscroll so reversing at a travel limit responds immediately.
       p.dragOffsetZ = z - p.targetZ;
       this.player.activeUntil = this.time + .20;
       // Expired gestures become passive blocks instead of replaying old power.
+      const effort={easy:1.18,standard:1,firm:.82}[this.swingRecognition]||1;
+      vx*=effort;vz*=effort;
       this.player.swingVX = clamp(vx, -6, 6); this.player.swingVZ = clamp(vz, -6, 6);
       const history = this.player.gestures.filter(g => this.time - g.at < .13);
       const peak = Math.max(0, ...history.map(g => -g.vz));
@@ -427,14 +437,15 @@
       const incoming = this.lastHitter === 'ai' && this.state === 'rally';
       // At the table, raise the hand enough that the open blade and handle
       // clear the tabletop; moderate contact tolerance still reaches low balls.
-      if (incoming && this.time-(this.playerPlanAt ?? -1)>.035) {
-        this.playerPlan=this.predictPlayerContact();this.playerPlanAt=this.time;
+      if (incoming && (this.time-(this.playerPlanAt ?? -1)>.035||Math.abs(p.z-(this.playerPlanZ??p.z))>.045)) {
+        this.playerPlan=this.predictPlayerContact();this.playerPlanAt=this.time;this.playerPlanZ=p.z;
       }
       const clearance = clamp((1.55 - p.z) / .24, 0, 1);
       const plan=incoming?this.playerPlan:null, minimum=.90 + .06 * clearance * clearance * (3 - 2 * clearance);
       let desiredY=plan?clamp(plan.y,minimum,1.48):incoming&&p.heightLock?clamp(p.heightLock.y,minimum,1.48):1.08;
+      if(p.heightLock&&Math.abs(p.z-p.heightLock.z)>.045)p.heightLock=null;
       if(incoming&&plan&&plan.time<.12&&this.bounces===1) {
-        if(!p.heightLock)p.heightLock={y:desiredY,until:this.time+.19};
+        if(!p.heightLock)p.heightLock={y:desiredY,z:p.z,until:this.time+.19};
         desiredY=clamp(desiredY,p.heightLock.y-.018,p.heightLock.y+.018);
       }
       if(!incoming||this.time>(p.heightLock?.until??Infinity))p.heightLock=null;
@@ -492,7 +503,7 @@
       }
 
       if (this.lastHitter === 'ai' && b.vz > 0 && this.time - p.contactAt > .18) {
-        const contact=paddleContact(prev,b,oldPlayerFrame,this.paddleFrame('player'),.008*Characters.modifier(this.characters.player,'defense'));
+        const contact=paddleContact(prev,b,oldPlayerFrame,this.paddleFrame('player'),.025*Characters.modifier(this.characters.player,'defense'));
         if (contact) {
           if (this.bounces === 0) {
             // A ball already beyond the end line is out; touching it there is
@@ -505,7 +516,7 @@
           this.missFeedback=Math.abs(b.x-p.x)>.18?'左右没有对准':b.y<p.y-.18?'接球偏晚 · 试着迎前':'来球较高 · 调整站位';
         }
       } else if (this.mode === 'match' && this.lastHitter === 'player' && b.vz < 0) {
-        const contact=paddleContact(prev,b,oldAIFrame,this.paddleFrame('ai'),.008*Characters.modifier(this.characters.ai,'defense'));
+        const contact=paddleContact(prev,b,oldAIFrame,this.paddleFrame('ai'),.025*Characters.modifier(this.characters.ai,'defense'));
         if(contact&&this.bounces===1){Object.assign(b,contact.center);this.hit('ai',contact);}
       }
       if (this.state !== 'rally') return;
@@ -554,7 +565,6 @@
       this.lastShot = { side, x: placement.x, z: placement.z, placement: placementName(placement.x, placement.z), serve: true };
       if (this.mode === 'serve') this.practice.attempts++;
       paddle.contactAt = this.time; this.rally = 1; this.totalHits++; this.maxRally = Math.max(this.maxRally, this.rally);
-      if(side==='player')paddle.serveFollow=true;
       this.player.swingUntil = 0;
       this.resetAITarget(); this.emit('hit', { side, speed: Math.hypot(b.vx,b.vy,b.vz), impactSpeed: Math.abs(b.vz),friction:Math.min(1,Math.abs(paddle.swingVX)/5),power:top,contact: 0, spin: spinName(b, '发球'), placement: this.lastShot.placement, x: b.x, y: b.y, z: b.z });
     }
